@@ -1,0 +1,100 @@
+{
+  "summary_statistics": {
+    "total_projects": 50,
+    "delayed_projects": 15,
+    "on_time_projects": 35,
+    "average_delay_days": -23.14,
+    "max_delay_days": "185",
+    "projects_with_cost_overrun": 8,
+    "average_cost_overrun_percent": 8.801665247316059,
+    "total_sanctioned_cost": "977500000",
+    "total_expenditure": 726077220.4608498,
+    "average_progress_percent": 66.73505236393723
+  },
+  "top_delayed_projects": [
+    {
+      "project_id": "MAHARASHTRA-0006",
+      "project_name": "Bridges Development Project - Solapur Sector 6",
+      "district": "Aurangabad",
+      "delay_days": 185,
+      "physical_progress_percent": 50.639303892882936
+    },
+    {
+      "project_id": "MAHARASHTRA-0012",
+      "project_name": "Roads Development Project - Solapur Sector 12",
+      "district": "Mumbai",
+      "delay_days": 178,
+      "physical_progress_percent": 61.17350459171653
+    },
+    {
+      "project_id": "MAHARASHTRA-0050",
+      "project_name": "Bridges Development Project - Nashik Sector 50",
+      "district": "Solapur",
+      "delay_days": 162,
+      "physical_progress_percent": 93.5654596595426
+    },
+    {
+      "project_id": "MAHARASHTRA-0015",
+      "project_name": "Irrigation Development Project - Aurangabad Sector 15",
+      "district": "Aurangabad",
+      "delay_days": 161,
+      "physical_progress_percent": 85.23163691921239
+    }
+  ],
+  "top_cost_overruns": [
+    {
+      "project_id": "MAHARASHTRA-0045",
+      "project_name": "Buildings Development Project - Pune Sector 45",
+      "cost_overrun_percent": 17.134755854927434,
+      "sanctioned_cost": 38100000,
+      "expenditure_to_date": 44628341.98072735
+    },
+    {
+      "project_id": "MAHARASHTRA-0016",
+      "project_name": "Railways Development Project - Mumbai Sector 16",
+      "cost_overrun_percent": 12.343235171797781,
+      "sanctioned_cost": 33000000,
+      "expenditure_to_date": 37073267.60669327
+    },
+    {
+      "project_id": "MAHARASHTRA-0021",
+      "project_name": "Railways Development Project - Nashik Sector 21",
+      "cost_overrun_percent": 10.869440243718579,
+      "sanctioned_cost": 8200000,
+      "expenditure_to_date": 9091294.099984923
+    }
+  ],
+  "category_analysis": {
+    "Irrigation": {
+      "total_projects": 7,
+      "delayed_projects": 1,
+      "average_delay": -61.142857142857146,
+      "average_progress": 58.84483258585882
+    },
+    "Roads": {
+      "total_projects": 9,
+      "delayed_projects": 2,
+      "average_delay": -54.44444444444444,
+      "average_progress": 70.56089369411853
+    },
+    "Railways": {
+      "total_projects": 8,
+      "delayed_projects": 3,
+      "average_delay": 19.75,
+      "average_progress": 75.52435071638291
+    },
+    "Bridges": {
+      "total_projects": 11,
+      "delayed_projects": 4,
+      "average_delay": -18.818181818181817,
+      "average_progress": 51.13861951471203
+    },
+    "Buildings": {
+      "total_projects": 15,
+      "delayed_projects": 5,
+      "average_delay": -12.666666666666666,
+      "average_progress": 74.87140843039249
+    }
+  },
+  "generated_at": "2026-08-25T18:41:08.262991"
+}
