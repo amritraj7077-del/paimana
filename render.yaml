@@ -5,6 +5,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn src.dashboard.app:app --bind 0.0.0.0:$PORT
     plan: free
+    publishDir: .
     envVars:
       - key: PORT
         value: 5000
