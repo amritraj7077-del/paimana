@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: paimana-intelligence-platform
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn src.dashboard.app:app --bind 0.0.0.0:$PORT
+    plan: free
+    envVars:
+      - key: PORT
+        value: 5000
