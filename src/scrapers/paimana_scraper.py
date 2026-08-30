@@ -152,6 +152,9 @@ class PAIMANAScraper:
         import random
         from datetime import datetime, timedelta
         
+        # Set seed for consistent data generation
+        random.seed(42)
+        
         categories = ['Roads', 'Railways', 'Irrigation', 'Buildings', 'Bridges']
         districts = ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad', 'Solapur', 'Kolhapur']
         agencies = ['PWD', 'Railways', 'Irrigation Dept', 'NHAI', 'MMRDA']
@@ -165,7 +168,16 @@ class PAIMANAScraper:
             planned_days = random.randint(365, 1095)  # 1-3 years
             actual_days = int(planned_days * random.uniform(0.8, 1.5))  # 80% to 150% time
             
-            planned_completion = datetime.now() + timedelta(days=random.randint(-200, 200))
+            # Generate more realistic delays: mostly past dates (delayed), some future dates
+            # 70% delayed (past dates), 30% on-time/ahead (future dates)
+            if random.random() < 0.7:
+                # Delayed: planned completion was in the past
+                days_offset = random.randint(-365, -30)  # 30 to 365 days ago
+            else:
+                # On-time/ahead: planned completion is in the future
+                days_offset = random.randint(30, 365)  # 30 to 365 days from now
+            
+            planned_completion = datetime.now() + timedelta(days=days_offset)
             
             project = {
                 'project_id': f'{self.state.upper()}-{i+1:04d}',

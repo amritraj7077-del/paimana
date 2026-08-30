@@ -70,6 +70,7 @@ def index():
     <head>
         <title>PAIMANA Intelligence Platform</title>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <script src="https://unpkg.com/lucide@latest"></script>
         <style>
             * {
                 margin: 0;
@@ -78,130 +79,219 @@ def index():
             }
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%);
+                background: #f5f5f5;
                 min-height: 100vh;
-                padding: 20px;
+                display: flex;
             }
+            
+            /* Sidebar Styles */
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: 240px;
+                height: 100vh;
+                background: #ffffff;
+                border-right: 1px solid #e9ecef;
+                display: flex;
+                flex-direction: column;
+                z-index: 1000;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.05);
+            }
+            
+            .sidebar-header {
+                padding: 24px;
+                border-bottom: 1px solid #e9ecef;
+            }
+            
+            .sidebar-title {
+                font-size: 24px;
+                font-weight: 700;
+                color: #1a365d;
+                margin-bottom: 4px;
+                letter-spacing: 1px;
+            }
+            
+            .sidebar-subtitle {
+                font-size: 11px;
+                color: #718096;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                font-weight: 600;
+            }
+            
+            .sidebar-nav {
+                flex: 1;
+                padding: 16px 0;
+                overflow-y: auto;
+            }
+            
+            .nav-item {
+                display: flex;
+                align-items: center;
+                padding: 12px 24px;
+                color: #4a5568;
+                text-decoration: none;
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.2s ease;
+                border-left: 3px solid transparent;
+                cursor: pointer;
+            }
+            
+            .nav-item:hover {
+                background: #f7fafc;
+                color: #1a365d;
+            }
+            
+            .nav-item.active {
+                background: #f0fdf4;
+                color: #1B6B3A;
+                border-left-color: #1B6B3A;
+            }
+            
+            .nav-item i {
+                margin-right: 12px;
+                width: 20px;
+                height: 20px;
+            }
+            
+            .sidebar-footer {
+                padding: 16px 24px;
+                border-top: 1px solid #e9ecef;
+                font-size: 12px;
+                color: #a0aec0;
+                text-align: center;
+            }
+            
+            /* Mobile menu button */
+            .mobile-menu-btn {
+                display: none;
+                position: fixed;
+                top: 16px;
+                left: 16px;
+                z-index: 1001;
+                background: #1B6B3A;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 8px;
+                cursor: pointer;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            }
+            
+            /* Main content area */
+            .main-content {
+                margin-left: 240px;
+                flex: 1;
+                padding: 20px;
+                background: #e9ecef;
+                min-height: 100vh;
+            }
+            
             .container {
                 max-width: 1400px;
                 margin: 0 auto;
             }
             .header {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 30px;
-                border-radius: 15px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                margin-bottom: 30px;
-                backdrop-filter: blur(10px);
+                background: #ffffff;
+                padding: 24px;
+                border-radius: 8px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                margin-bottom: 24px;
+                border: 1px solid #dee2e6;
             }
             h1 {
-                color: #2c3e50;
-                font-size: 2.5em;
-                margin-bottom: 10px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .subtitle {
-                color: #7f8c8d;
-                font-size: 1.1em;
-            }
-            .nav {
-                display: flex;
-                gap: 15px;
-                margin-top: 20px;
-                flex-wrap: wrap;
-            }
-            .nav a {
-                color: white;
-                text-decoration: none;
-                padding: 10px 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 25px;
-                transition: transform 0.2s, box-shadow 0.2s;
+                color: #1a365d;
+                font-size: 1.75em;
+                margin-bottom: 8px;
                 font-weight: 600;
             }
-            .nav a:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            .subtitle {
+                color: #6c757d;
+                font-size: 1em;
+            }
+            .nav {
+                display: none;
             }
             .alert {
-                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-                padding: 20px;
-                border-radius: 10px;
-                color: white;
-                margin-bottom: 30px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                background: #d4edda;
+                padding: 16px;
+                border-radius: 6px;
+                color: #155724;
+                margin-bottom: 24px;
+                border: 1px solid #c3e6cb;
             }
             .grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 20px;
-                margin-bottom: 30px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 16px;
+                margin-bottom: 24px;
             }
             .stat-card {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 25px;
-                border-radius: 15px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                backdrop-filter: blur(10px);
-                transition: transform 0.3s;
+                background: #ffffff;
+                padding: 20px;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                border: 1px solid #dee2e6;
+                transition: transform 0.2s;
             }
             .stat-card:hover {
-                transform: translateY(-5px);
+                transform: translateY(-2px);
             }
             .stat-value {
-                font-size: 2.5em;
-                font-weight: bold;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                margin-bottom: 5px;
+                font-size: 2em;
+                font-weight: 600;
+                color: #1B6B3A;
+                margin-bottom: 4px;
             }
             .stat-label {
-                color: #7f8c8d;
-                font-size: 0.9em;
+                color: #6c757d;
+                font-size: 0.85em;
                 text-transform: uppercase;
-                letter-spacing: 1px;
+                letter-spacing: 0.5px;
             }
             .card {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 30px;
-                border-radius: 15px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                margin-bottom: 30px;
-                backdrop-filter: blur(10px);
+                background: #ffffff;
+                padding: 24px;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                margin-bottom: 24px;
+                border: 1px solid #dee2e6;
             }
             h2 {
-                color: #2c3e50;
-                margin-bottom: 20px;
-                font-size: 1.8em;
+                color: #1a365d;
+                margin-bottom: 16px;
+                font-size: 1.5em;
+                font-weight: 600;
             }
             table {
                 width: 100%;
                 border-collapse: collapse;
-                margin: 20px 0;
+                margin: 16px 0;
             }
             th {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: #1B6B3A;
                 color: white;
-                padding: 15px;
+                padding: 12px;
                 text-align: left;
                 font-weight: 600;
+                font-size: 0.9em;
             }
             td {
-                padding: 15px;
-                border-bottom: 1px solid #ecf0f1;
+                padding: 12px;
+                border-bottom: 1px solid #dee2e6;
+                font-size: 0.9em;
             }
             tr:hover {
                 background: #f8f9fa;
             }
             #map {
-                height: 600px;
-                margin: 20px 0;
-                border-radius: 10px;
+                height: 500px;
+                margin: 16px 0;
+                border-radius: 6px;
                 overflow: hidden;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                border: 1px solid #dee2e6;
             }
             .loading {
                 text-align: center;
@@ -219,38 +309,41 @@ def index():
                 60%, 100% { content: '...'; }
             }
             .filter-bar {
-                background: rgba(255, 255, 255, 0.95);
-                padding: 20px;
-                border-radius: 10px;
+                background: #ffffff;
+                padding: 16px;
+                border-radius: 6px;
                 margin-bottom: 20px;
                 display: flex;
-                gap: 15px;
+                gap: 12px;
                 flex-wrap: wrap;
                 align-items: center;
+                border: 1px solid #dee2e6;
             }
             .filter-bar select, .filter-bar input {
-                padding: 10px 15px;
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
+                padding: 8px 12px;
+                border: 1px solid #ced4da;
+                border-radius: 4px;
                 font-size: 14px;
                 min-width: 150px;
             }
             .filter-bar select:focus, .filter-bar input:focus {
                 outline: none;
-                border-color: #00b4db;
+                border-color: #1B6B3A;
+                box-shadow: 0 0 0 2px rgba(27, 107, 58, 0.1);
             }
             .filter-bar button {
-                padding: 10px 20px;
-                background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%);
+                padding: 8px 16px;
+                background: #1B6B3A;
                 color: white;
                 border: none;
-                border-radius: 8px;
+                border-radius: 4px;
                 cursor: pointer;
-                font-weight: 600;
-                transition: transform 0.2s;
+                font-weight: 500;
+                font-size: 14px;
+                transition: background-color 0.2s;
             }
             .filter-bar button:hover {
-                transform: translateY(-2px);
+                background: #145a32;
             }
             .modal {
                 display: none;
@@ -269,35 +362,38 @@ def index():
             }
             .modal-content {
                 background: white;
-                padding: 30px;
-                border-radius: 15px;
+                padding: 24px;
+                border-radius: 6px;
                 max-width: 600px;
                 max-height: 80vh;
                 overflow-y: auto;
                 position: relative;
+                border: 1px solid #dee2e6;
             }
             .modal-close {
                 position: absolute;
-                top: 15px;
-                right: 20px;
-                font-size: 24px;
+                top: 12px;
+                right: 16px;
+                font-size: 20px;
                 cursor: pointer;
-                color: #7f8c8d;
+                color: #6c757d;
             }
             .modal-close:hover {
-                color: #e74c3c;
+                color: #dc3545;
             }
             .project-detail {
-                margin: 15px 0;
+                margin: 12px 0;
             }
             .project-detail label {
                 font-weight: 600;
-                color: #2c3e50;
+                color: #1a365d;
                 display: block;
-                margin-bottom: 5px;
+                margin-bottom: 4px;
+                font-size: 0.9em;
             }
             .project-detail span {
-                color: #7f8c8d;
+                color: #6c757d;
+                font-size: 0.95em;
             }
             .status-badge {
                 display: inline-block;
@@ -324,12 +420,120 @@ def index():
             tr.clickable:hover {
                 background: #e3f2fd !important;
             }
+            
+            /* Responsive styles */
+            @media (max-width: 1024px) {
+                .sidebar {
+                    transform: translateX(-100%);
+                    transition: transform 0.3s ease;
+                }
+                
+                .sidebar.open {
+                    transform: translateX(0);
+                }
+                
+                .mobile-menu-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .main-content {
+                    margin-left: 0;
+                    padding: 20px;
+                }
+                
+                .main-content.shifted {
+                    margin-left: 0;
+                }
+            }
+            
+            @media (max-width: 768px) {
+                .container {
+                    padding: 0 10px;
+                }
+                
+                .header {
+                    padding: 20px;
+                }
+                
+                .grid {
+                    grid-template-columns: 1fr;
+                }
+                
+                .filter-bar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+                
+                .filter-bar select, .filter-bar input, .filter-bar button {
+                    width: 100%;
+                }
+            }
         </style>
     </head>
     <body>
-        <div class="container">
+        <!-- Mobile menu button -->
+        <button class="mobile-menu-btn" onclick="toggleSidebar()">
+            <i data-lucide="menu"></i>
+        </button>
+        
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-title">PAIMANA</div>
+                <div class="sidebar-subtitle">PROJECT INTELLIGENCE</div>
+            </div>
+            
+            <div class="sidebar-nav">
+                <div class="nav-item active" onclick="navigateTo('dashboard')" id="nav-dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('map')" id="nav-map">
+                    <i data-lucide="map"></i>
+                    <span>Project Location Map</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('analysis')" id="nav-analysis">
+                    <i data-lucide="bar-chart-3"></i>
+                    <span>Project Analysis</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('delay')" id="nav-delay">
+                    <i data-lucide="clock"></i>
+                    <span>Delay Analysis</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('cost')" id="nav-cost">
+                    <i data-lucide="indian-rupee"></i>
+                    <span>Cost Analysis</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('risk')" id="nav-risk">
+                    <i data-lucide="shield-alert"></i>
+                    <span>Risk Prediction</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('similar')" id="nav-similar">
+                    <i data-lucide="search"></i>
+                    <span>Similar Projects</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('insights')" id="nav-insights">
+                    <i data-lucide="sparkles"></i>
+                    <span>AI Insights</span>
+                </div>
+                <div class="nav-item" onclick="navigateTo('reports')" id="nav-reports">
+                    <i data-lucide="file-down"></i>
+                    <span>Reports & Export</span>
+                </div>
+            </div>
+            
+            <div class="sidebar-footer">
+                © 2026 PAIMANA Platform
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content" id="mainContent">
+            <div class="container">
             <div class="header">
-                <h1>🏗️ PAIMANA Intelligence Platform</h1>
+                <h1>PAIMANA Intelligence Platform</h1>
                 <p class="subtitle">Infrastructure Transparency Through AI</p>
                 
                 <div class="nav">
@@ -342,12 +546,12 @@ def index():
             </div>
             
             <div class="alert">
-                <strong>✅ Live Demo Active</strong><br>
+                <strong>Live Demo Active</strong><br>
                 This dashboard demonstrates real-time infrastructure project monitoring with AI-powered analytics and geo-visualization.
             </div>
             
             <div class="filter-bar">
-                <input type="text" id="searchInput" placeholder="🔍 Search projects...">
+                <input type="text" id="searchInput" placeholder="Search projects...">
                 <select id="districtFilter">
                     <option value="">All Districts</option>
                 </select>
@@ -364,48 +568,69 @@ def index():
                 <button onclick="resetFilters()" style="background: #95a5a6;">Reset</button>
             </div>
             
-            <h2 style="color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">📊 Quick Statistics</h2>
+            <h2 style="color: white; text-shadow: 2px 2px 4px rgba(0,0,0,0.3);">Quick Statistics</h2>
             <div class="grid" id="stats">
                 <div class="loading">Loading stats</div>
             </div>
             
-            <div class="card">
-                <h2>🗺️ Project Location Map</h2>
+            <div class="card" id="section-map">
+                <h2>Project Location Map</h2>
                 <div id="map"></div>
             </div>
             
-            <div class="card">
-                <h2>🤖 AI Delay Predictions (ML Model)</h2>
+            <div class="card" id="section-analysis">
+                <h2>Category Performance Comparison</h2>
+                <div id="category-chart"></div>
+            </div>
+            
+            <div class="card" id="section-delay">
+                <h2>Top Delayed Projects</h2>
+                <div id="delayed">
+                    <div class="loading">Loading delayed projects</div>
+                </div>
+            </div>
+            
+            <div class="card" id="section-cost">
+                <h2>Cost Overruns</h2>
+                <div id="overruns">
+                    <div class="loading">Loading cost overruns</div>
+                </div>
+            </div>
+            
+            <div class="card" id="section-risk">
+                <h2>AI Delay Predictions (ML Model)</h2>
                 <p style="color: #7f8c8d; margin-bottom: 20px;">Machine learning predictions of project completion delays based on current progress and expenditure patterns.</p>
                 <div id="ml-predictions">
                     <div class="loading">Loading ML predictions</div>
                 </div>
             </div>
             
-            <div class="card">
-                <h2>📈 Category Performance Comparison</h2>
-                <div id="category-chart"></div>
-            </div>
-            
-            <div class="card">
-                <h2>⚠️ Top Delayed Projects</h2>
-                <div id="delayed">
-                    <div class="loading">Loading delayed projects</div>
+            <div class="card" id="section-similar">
+                <h2>Similar Projects Analysis</h2>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">Compare projects with similar characteristics to identify patterns and insights.</p>
+                <div id="similar-projects">
+                    <div class="loading">Similar projects feature coming soon</div>
                 </div>
             </div>
             
-            <div class="card">
-                <h2>💰 Cost Overruns</h2>
-                <div id="overruns">
-                    <div class="loading">Loading cost overruns</div>
+            <div class="card" id="section-insights">
+                <h2>AI-Generated Insights</h2>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">AI-powered insights and recommendations based on project data analysis.</p>
+                <div id="ai-insights">
+                    <div class="loading">AI insights feature coming soon</div>
                 </div>
             </div>
             
-            <div class="card">
-                <h2>📋 Data Quality Assessment</h2>
+            <div class="card" id="section-reports">
+                <h2>Data Quality Assessment</h2>
                 <div id="quality">
                     <div class="loading">Loading quality report</div>
                 </div>
+                <div style="margin-top: 20px;">
+                    <a href="/api/projects" style="display: inline-block; padding: 10px 20px; background: #1B6B3A; color: white; text-decoration: none; border-radius: 8px; margin-right: 10px;">Download CSV</a>
+                    <a href="/api/projects-excel" style="display: inline-block; padding: 10px 20px; background: #1B6B3A; color: white; text-decoration: none; border-radius: 8px;">Download Excel</a>
+                </div>
+            </div>
             </div>
         </div>
         
@@ -421,8 +646,55 @@ def index():
         </div>
         
         <script>
+            // Initialize Lucide icons
+            lucide.createIcons();
+            
             let allProjects = [];
             let filteredProjects = [];
+            
+            // Sidebar navigation functions
+            function toggleSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                const mainContent = document.getElementById('mainContent');
+                sidebar.classList.toggle('open');
+                mainContent.classList.toggle('shifted');
+            }
+            
+            function navigateTo(section) {
+                // Update active state
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                document.getElementById('nav-' + section).classList.add('active');
+                
+                // Scroll to section
+                if (section === 'dashboard') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                    const sectionElement = document.getElementById('section-' + section);
+                    if (sectionElement) {
+                        sectionElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }
+                
+                // Close sidebar on mobile after navigation
+                if (window.innerWidth <= 1024) {
+                    toggleSidebar();
+                }
+            }
+            
+            // Close sidebar when clicking outside on mobile
+            document.addEventListener('click', function(event) {
+                const sidebar = document.getElementById('sidebar');
+                const menuBtn = document.querySelector('.mobile-menu-btn');
+                
+                if (window.innerWidth <= 1024 && 
+                    !sidebar.contains(event.target) && 
+                    !menuBtn.contains(event.target) &&
+                    sidebar.classList.contains('open')) {
+                    toggleSidebar();
+                }
+            });
             
             // Fetch and display data
             fetch('/api/analytics')
@@ -468,7 +740,7 @@ def index():
                             table += `<tr>
                                 <td><strong>${p.project_id}</strong></td>
                                 <td>${p.project_name}</td>
-                                <td style="color: #e67e22; font-weight: bold;">${p.cost_overrun_percent.toFixed(1)}%</td>
+                                <td style="color: #dc3545; font-weight: 600;">${p.cost_overrun_percent.toFixed(1)}%</td>
                                 <td>₹${(p.sanctioned_cost/10000000).toFixed(2)} Cr</td>
                                 <td>₹${(p.expenditure_to_date/10000000).toFixed(2)} Cr</td>
                             </tr>`;
@@ -493,7 +765,7 @@ def index():
                                 <td>${p.project_name}</td>
                                 <td>${p.district}</td>
                                 <td>${p.physical_progress_percent.toFixed(1)}%</td>
-                                <td style="color: #e74c3c; font-weight: bold;">${p.predicted_delay_days} days</td>
+                                <td style="color: #dc3545; font-weight: 600;">${p.predicted_delay_days} days</td>
                                 <td>${completion}</td>
                             </tr>`;
                         });
@@ -502,7 +774,7 @@ def index():
                     }
                 })
                 .catch(err => {
-                    document.getElementById('ml-predictions').innerHTML = '<p style="color: #7f8c8d;">ML predictions temporarily unavailable</p>';
+                    document.getElementById('ml-predictions').innerHTML = '<p style="color: #6c757d;">ML predictions temporarily unavailable</p>';
                 });
             
             // Fetch and render category chart
@@ -513,7 +785,7 @@ def index():
                     Plotly.newPlot('category-chart', fig.data, fig.layout, {responsive: true});
                 })
                 .catch(err => {
-                    document.getElementById('category-chart').innerHTML = '<p style="text-align: center; padding: 40px; color: #7f8c8d;">Category chart temporarily unavailable</p>';
+                    document.getElementById('category-chart').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">Category chart temporarily unavailable</p>';
                 });
             
             // Fetch quality data
@@ -539,8 +811,8 @@ def index():
                                 <div class="stat-label">Anomalies</div>
                             </div>
                         </div>
-                        <p style="padding: 15px; background: #e8f5e9; border-left: 4px solid #27ae60; border-radius: 5px; margin-top: 20px;">
-                            <strong>💡 ${data.recommendation}</strong>
+                        <p style="padding: 12px; background: #e8f5e9; border-left: 4px solid #27ae60; border-radius: 4px; margin-top: 16px; font-size: 0.9em;">
+                            <strong>${data.recommendation}</strong>
                         </p>
                     `;
                 });
@@ -582,7 +854,7 @@ def index():
                     Plotly.newPlot('map', [trace], layout, {responsive: true});
                 })
                 .catch(err => {
-                    document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #7f8c8d;">Map visualization temporarily unavailable</p>';
+                    document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">Map visualization temporarily unavailable</p>';
                 });
             
             // Filter functions
