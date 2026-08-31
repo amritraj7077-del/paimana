@@ -16,6 +16,7 @@ from src.scrapers.paimana_scraper import PAIMANAScraper
 from src.analytics.delay_detector import DelayAnalyzer
 from src.audit.quality_checker import DataQualityAuditor
 from src.analytics.ml_predictor import DelayPredictor
+from src.analytics.project_ml import predict_projects
 import plotly.graph_objects as go
 import plotly.utils
 
