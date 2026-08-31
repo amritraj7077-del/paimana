@@ -58,13 +58,13 @@ predictions_df["predicted_delay_days"] = (
 
 predictions_df["predicted_completion_date"] = pd.NaT
 
-        data_cache['projects'] = df
-        data_cache['analytics'] = analytics_report
-        data_cache['quality_report'] = quality_summary
-        data_cache['predictor'] = None
-        data_cache['predictions'] = predictions_df
+data_cache['projects'] = df
+data_cache['analytics'] = analytics_report
+data_cache['quality_report'] = quality_summary
+data_cache['predictor'] = None
+data_cache['predictions'] = predictions_df
     
-    return data_cache
+return data_cache
 
 
 @app.route('/')
