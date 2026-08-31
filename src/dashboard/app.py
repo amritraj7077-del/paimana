@@ -10,6 +10,7 @@ import json
 import pickle
 from pathlib import Path
 import sys
+import os
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -20,7 +21,14 @@ import plotly.graph_objects as go
 import plotly.utils
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+
+# Configure CORS - allow all origins for development, or specific frontend domain
+# For Railway deployment with separate frontend, set FRONTEND_URL environment variable
+frontend_url = os.environ.get('FRONTEND_URL', '*')
+if frontend_url == '*':
+    CORS(app)  # Enable CORS for all routes (development)
+else:
+    CORS(app, resources={r"/*": {"origins": frontend_url}})
 
 # Global data cache
 data_cache = {
@@ -813,8 +821,20 @@ def index():
             
             // Fetch and display data
             fetch('/api/analytics')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Analytics data received:', data);
+                    
+                    // Validate response structure
+                    if (!data || !data.summary_statistics) {
+                        throw new Error('Invalid analytics data structure');
+                    }
+                    
                     const stats = data.summary_statistics;
                     document.getElementById('stats').innerHTML = `
                         <div class="stat-card">
@@ -840,16 +860,16 @@ def index():
                     `;
                     
                     // Delayed projects table
-                    allProjects = data.top_delayed_projects;
+                    allProjects = data.top_delayed_projects || [];
                     filteredProjects = [...allProjects];
                     populateFilters();
                     
-                    if (data.top_delayed_projects.length > 0) {
+                    if (data.top_delayed_projects && data.top_delayed_projects.length > 0) {
                         renderDelayedProjects(data.top_delayed_projects);
                     }
                     
                     // Cost overruns
-                    if (data.top_cost_overruns.length > 0) {
+                    if (data.top_cost_overruns && data.top_cost_overruns.length > 0) {
                         let table = '<table><tr><th>Project ID</th><th>Name</th><th>Overrun %</th><th>Sanctioned</th><th>Spent</th></tr>';
                         data.top_cost_overruns.slice(0, 10).forEach(p => {
                             table += `<tr>
@@ -866,14 +886,21 @@ def index():
                 })
                 .catch(err => {
                     console.error('Error loading analytics:', err);
-                    document.getElementById('stats').innerHTML = '<p style="color: #dc3545; padding: 20px;">Failed to load statistics. Please refresh the page.</p>';
+                    document.getElementById('stats').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load statistics: ${err.message}. Please refresh the page.</p>`;
                 });
             
             // Fetch ML predictions
             fetch('/api/ml-predictions')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(predictions => {
-                    if (predictions.length > 0) {
+                    console.log('ML predictions received:', predictions);
+                    
+                    if (predictions && predictions.length > 0) {
                         let table = '<table><tr><th>Project ID</th><th>Name</th><th>District</th><th>Progress</th><th>Predicted Delay</th><th>Est. Completion</th></tr>';
                         predictions.forEach(p => {
                             const completion = p.predicted_completion_date ? p.predicted_completion_date.split('T')[0] : 'N/A';
@@ -888,27 +915,43 @@ def index():
                         });
                         table += '</table>';
                         document.getElementById('ml-predictions').innerHTML = table;
+                    } else {
+                        document.getElementById('ml-predictions').innerHTML = '<p style="color: #6c757d; padding: 20px;">No ML predictions available</p>';
                     }
                 })
                 .catch(err => {
-                    document.getElementById('ml-predictions').innerHTML = '<p style="color: #6c757d;">ML predictions temporarily unavailable</p>';
+                    console.error('Error loading ML predictions:', err);
+                    document.getElementById('ml-predictions').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load ML predictions: ${err.message}</p>`;
                 });
             
             // Fetch and render category chart
             fetch('/api/category-chart')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(figJson => {
+                    console.log('Category chart data received');
                     const fig = JSON.parse(figJson);
                     Plotly.newPlot('category-chart', fig.data, fig.layout, {responsive: true});
                 })
                 .catch(err => {
-                    document.getElementById('category-chart').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">Category chart temporarily unavailable</p>';
+                    console.error('Error loading category chart:', err);
+                    document.getElementById('category-chart').innerHTML = `<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load category chart: ${err.message}</p>`;
                 });
             
             // Fetch quality data
             fetch('/api/quality')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Quality data received:', data);
                     document.getElementById('quality').innerHTML = `
                         <div class="grid">
                             <div class="stat-card">
@@ -932,12 +975,28 @@ def index():
                             <strong>${data.recommendation}</strong>
                         </p>
                     `;
+                })
+                .catch(err => {
+                    console.error('Error loading quality data:', err);
+                    document.getElementById('quality').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load quality data: ${err.message}</p>`;
                 });
             
             // Fetch map data
             fetch('/api/map-data')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Map data received:', data);
+                    
+                    if (data.error) {
+                        document.getElementById('map').innerHTML = `<p style="text-align: center; padding: 40px; color: #dc3545;">${data.message}</p>`;
+                        return;
+                    }
+                    
                     if (!data.latitudes || data.latitudes.length === 0) {
                         document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">No location data available</p>';
                         return;
@@ -976,7 +1035,7 @@ def index():
                 })
                 .catch(err => {
                     console.error('Error loading map data:', err);
-                    document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load map data. Please refresh the page.</p>';
+                    document.getElementById('map').innerHTML = `<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load map data: ${err.message}</p>`;
                 });
             
             // Filter functions
