@@ -4,6 +4,7 @@ Provides web interface for viewing project analytics and data
 """
 
 from flask import Flask, render_template, jsonify, request, send_file
+from flask_cors import CORS
 import pandas as pd
 import json
 from pathlib import Path
@@ -21,6 +22,7 @@ import plotly.graph_objects as go
 import plotly.utils
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Global data cache
 data_cache = {
@@ -833,8 +835,10 @@ def index():
                         document.getElementById('overruns').innerHTML = table;
                     }
                 })
-
-;
+                .catch(err => {
+                    console.error('Error loading analytics:', err);
+                    document.getElementById('stats').innerHTML = '<p style="color: #dc3545; padding: 20px;">Failed to load statistics. Please refresh the page.</p>';
+                });
             
             // Fetch ML predictions
             fetch('/api/ml-predictions')
@@ -905,6 +909,10 @@ def index():
             fetch('/api/map-data')
                 .then(r => r.json())
                 .then(data => {
+                    if (!data.latitudes || data.latitudes.length === 0) {
+                        document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">No location data available</p>';
+                        return;
+                    }
                     const trace = {
                         type: 'scattermapbox',
                         lat: data.latitudes,
@@ -938,7 +946,8 @@ def index():
                     Plotly.newPlot('map', [trace], layout, {responsive: true});
                 })
                 .catch(err => {
-                    document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #6c757d;">Map visualization temporarily unavailable</p>';
+                    console.error('Error loading map data:', err);
+                    document.getElementById('map').innerHTML = '<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load map data. Please refresh the page.</p>';
                 });
             
             // Filter functions
