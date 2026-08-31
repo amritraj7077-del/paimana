@@ -67,6 +67,12 @@ def load_or_generate_data():
     return data_cache
 
 
+@app.route('/health')
+def health():
+    """Health check endpoint for Railway"""
+    return jsonify({'status': 'healthy', 'service': 'paimana-intelligence-platform'})
+
+
 @app.route('/')
 def index():
     """Home page"""
