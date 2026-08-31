@@ -16,6 +16,7 @@ from src.scrapers.paimana_scraper import PAIMANAScraper
 from src.analytics.delay_detector import DelayAnalyzer
 from src.audit.quality_checker import DataQualityAuditor
 from src.analytics.ml_predictor import DelayPredictor
+from src.analytics.project_ml import predict_projects
 import plotly.graph_objects as go
 import plotly.utils
 
@@ -47,17 +48,22 @@ def load_or_generate_data():
         quality_report = auditor.audit(df)
         quality_summary = auditor.generate_audit_summary(quality_report)
         
-        # Train ML predictor
-        predictor = DelayPredictor()
-        predictor.train(df)
-        predictions_df = predictor.predict_completion_date(df)
-        
+        # Run trained ML models
+        predictions_df = predict_projects(df)
+
+        # Keep old column names for dashboard compatibility
+        predictions_df["predicted_delay_days"] = (
+            predictions_df["ML_Predicted_Delay_Days"]
+        )
+
+        predictions_df["predicted_completion_date"] = pd.NaT
+
         data_cache['projects'] = df
         data_cache['analytics'] = analytics_report
         data_cache['quality_report'] = quality_summary
-        data_cache['predictor'] = predictor
+        data_cache['predictor'] = None
         data_cache['predictions'] = predictions_df
-    
+
     return data_cache
 
 
@@ -1029,23 +1035,75 @@ def api_delayed():
 
 @app.route('/api/ml-predictions')
 def api_ml_predictions():
-    """Get ML-based delay predictions"""
+    """Get predictions from the trained PAIMANA ML models."""
+
     data = load_or_generate_data()
-    predictions_df = data['predictions']
-    
-    # Return top 10 predictions with highest predicted delays
-    top_predictions = predictions_df.nlargest(10, 'predicted_delay_days')[
-        ['project_id', 'project_name', 'district', 'physical_progress_percent', 
-         'predicted_delay_days', 'predicted_completion_date']
-    ]
-    
-    # Convert datetime to string for JSON serialization
-    result = top_predictions.copy()
-    if 'predicted_completion_date' in result.columns:
-        result['predicted_completion_date'] = result['predicted_completion_date'].astype(str)
-    
-    import json
-    return json.dumps(result.to_dict('records'), default=str), 200, {'Content-Type': 'application/json'}
+
+    # Get the projects currently displayed by the dashboard
+    df = data['projects'].copy()
+
+    # Convert dashboard data into the format expected by the trained model
+    df['Sector'] = df.get('category', 'Construction')
+    df['State'] = df.get('state', 'Maharashtra').astype(str).str.title()
+    df['Ministry'] = 'Ministry of Housing & Urban Affairs'
+
+    # Convert rupees to crore
+    df['Original Cost (Rs. Crore)'] = (
+        pd.to_numeric(df.get('sanctioned_cost', 0), errors='coerce')
+        .fillna(0) / 10000000
+    )
+
+    df['Cumulative Expenditure (Rs. Crore)'] = (
+        pd.to_numeric(df.get('expenditure_to_date', 0), errors='coerce')
+        .fillna(0) / 10000000
+    )
+
+    df['Physical Progress (%)'] = (
+        pd.to_numeric(df.get('physical_progress_percent', 0), errors='coerce')
+        .fillna(0)
+    )
+
+    # Demo projects do not have approval years,
+    # so use the current project-era year.
+    df['Approval_Year'] = 2024
+
+    # Run the ACTUAL trained ML models
+    predictions = predict_projects(df)
+
+    # Sort by predicted delay
+    predictions = predictions.sort_values(
+        'ML_Predicted_Delay_Days',
+        ascending=False
+    ).head(10)
+
+    # Return data required by the website
+    result = []
+
+    for _, row in predictions.iterrows():
+
+        result.append({
+            'project_id': row.get('project_id', 'N/A'),
+            'project_name': row.get('project_name', 'Unknown'),
+            'district': row.get('district', 'N/A'),
+            'physical_progress_percent': float(
+                row.get('physical_progress_percent', 0)
+            ),
+            'predicted_delay_days': int(
+                row.get('ML_Predicted_Delay_Days', 0)
+            ),
+            'cost_overrun_percent': round(
+                float(row.get('ML_Predicted_Cost_Overrun_%', 0)),
+                2
+            ),
+            'risk_level': str(
+                row.get('ML_Risk_Level', 'UNKNOWN')
+            ),
+            'risk_confidence': float(
+                row.get('ML_Risk_Confidence_%', 0)
+            )
+        })
+
+    return jsonify(result)
 
 
 @app.route('/api/category-chart')
