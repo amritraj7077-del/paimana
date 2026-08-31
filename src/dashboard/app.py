@@ -1064,7 +1064,239 @@ def index():
                 if (e.key === 'Enter') {
                     applyFilters();
                 }
-            });
+            });  
+            // ============================================================
+// PAIMANA OFFLINE INTELLIGENCE ASSISTANT
+// No external API / No API key
+// ============================================================
+
+function sendMessage() {
+
+    const input = document.getElementById("chat-input");
+    const messages = document.getElementById("chat-messages");
+
+    const question = input.value.trim();
+
+    if (!question) return;
+
+    // Show user message
+    messages.innerHTML += `
+        <div style="
+            background:#1B6B3A;
+            color:white;
+            padding:12px;
+            border-radius:10px;
+            margin-bottom:10px;
+            margin-left:20%;
+        ">
+            <strong>You</strong><br>
+            ${escapeHTML(question)}
+        </div>
+    `;
+
+    input.value = "";
+
+    // Generate local answer
+    const answer = getPAIMANAAnswer(question);
+
+    // Show assistant answer
+    messages.innerHTML += `
+        <div style="
+            background:#e8f5e9;
+            padding:12px;
+            border-radius:10px;
+            margin-bottom:10px;
+            margin-right:20%;
+            white-space:pre-line;
+        ">
+            <strong>🤖 PAIMANA Assistant</strong><br>
+            ${answer}
+        </div>
+    `;
+
+    messages.scrollTop = messages.scrollHeight;
+}
+
+
+function escapeHTML(text) {
+
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+function getPAIMANAAnswer(question) {
+
+    const q = question.toLowerCase();
+
+    // Greeting
+    if (
+        q.includes("hello") ||
+        q.includes("hi") ||
+        q.includes("hey") ||
+        q.includes("namaste")
+    ) {
+        return "Hello! 👋 I am the PAIMANA Intelligence Assistant. How can I help you?";
+    }
+
+
+    // What is PAIMANA
+    if (
+        q.includes("what is paimana") ||
+        q.includes("about paimana") ||
+        q.includes("paimana platform")
+    ) {
+        return "PAIMANA is an infrastructure intelligence platform that combines historical project data, analytics, GIS and machine learning to predict potential cost overruns, delays and project risks.";
+    }
+
+
+    // Problem
+    if (
+        q.includes("problem") ||
+        q.includes("why paimana") ||
+        q.includes("why is paimana needed")
+    ) {
+        return "Infrastructure projects commonly face cost overruns, delays, unrealistic budgets and location-specific risks. PAIMANA aims to identify these risks earlier using historical data and predictive analytics.";
+    }
+
+
+    // Methodology
+    if (
+        q.includes("methodology") ||
+        q.includes("how does it work") ||
+        q.includes("how it works") ||
+        q.includes("workflow")
+    ) {
+        return "PAIMANA follows this workflow:\n\n1. Historical project data\n2. Data cleaning and quality audit\n3. GIS and location intelligence\n4. Similar project analysis\n5. Machine learning prediction\n6. Cost, delay and risk assessment\n7. Actionable insights";
+    }
+
+
+    // Delay
+    if (
+        q.includes("delay") ||
+        q.includes("delayed") ||
+        q.includes("late project")
+    ) {
+        return "PAIMANA analyses physical progress and expenditure patterns to identify projects with potential schedule problems. The trained ML system also estimates potential delay duration.";
+    }
+
+
+    // Cost
+    if (
+        q.includes("cost") ||
+        q.includes("cost overrun") ||
+        q.includes("budget") ||
+        q.includes("expenditure")
+    ) {
+        return "The platform analyses project cost, expenditure and progress to identify potential cost overruns. Its trained ML model predicts cost-overrun behaviour using project characteristics and financial indicators.";
+    }
+
+
+    // Risk
+    if (
+        q.includes("risk") ||
+        q.includes("high risk") ||
+        q.includes("risk prediction")
+    ) {
+        return "PAIMANA's risk model evaluates project characteristics, progress and expenditure-related features and classifies the project's predicted risk level. This helps decision-makers prioritise projects requiring attention.";
+    }
+
+
+    // Machine learning
+    if (
+        q.includes("machine learning") ||
+        q.includes("ml model") ||
+        q === "ml" ||
+        q.includes("algorithm")
+    ) {
+        return "PAIMANA uses trained machine learning models for cost-overrun prediction, delay prediction and project-risk classification. The prediction pipeline also uses categorical encoding and feature scaling.";
+    }
+
+
+    // Features
+    if (
+        q.includes("features") ||
+        q.includes("input") ||
+        q.includes("data used") ||
+        q.includes("what data")
+    ) {
+        return "The predictive models use features such as sector, state, ministry, original project cost, approval year, physical progress, expenditure ratio, cost per progress, project size and budget utilisation.";
+    }
+
+
+    // GIS
+    if (
+        q.includes("gis") ||
+        q.includes("location") ||
+        q.includes("geographical")
+    ) {
+        return "GIS provides location intelligence. PAIMANA can use regional patterns, historical project outcomes and geographical characteristics to understand how location can influence cost, delay and project risk.";
+    }
+
+
+    // Similar projects
+    if (
+        q.includes("similar project") ||
+        q.includes("historical project") ||
+        q.includes("past project")
+    ) {
+        return "PAIMANA can compare a project with historical projects using factors such as category, location, budget, scale and historical performance. These comparisons provide evidence for future project predictions.";
+    }
+
+
+    // Benefits
+    if (
+        q.includes("benefit") ||
+        q.includes("advantage") ||
+        q.includes("useful")
+    ) {
+        return "PAIMANA can help stakeholders identify delayed projects, monitor expenditure, detect potential cost overruns, understand regional patterns and prioritise high-risk infrastructure projects.";
+    }
+
+
+    // Technology
+    if (
+        q.includes("technology") ||
+        q.includes("tech stack") ||
+        q.includes("built with")
+    ) {
+        return "The platform is built using Python, Flask, Pandas, Scikit-learn and interactive data-visualisation technologies, with trained ML models integrated directly into the application.";
+    }
+
+
+    // SIH
+    if (
+        q.includes("sih") ||
+        q.includes("hackathon")
+    ) {
+        return "For the SIH prototype, PAIMANA demonstrates an end-to-end infrastructure intelligence workflow: project monitoring, data analytics, machine learning prediction, risk assessment, GIS visualisation and decision support.";
+    }
+
+
+    // No API question
+    if (
+        q.includes("api") ||
+        q.includes("external")
+    ) {
+        return "The PAIMANA Intelligence Assistant operates locally in the application and does not depend on an external generative-AI API.";
+    }
+
+
+    // Help
+    if (
+        q.includes("help") ||
+        q.includes("what can you do")
+    ) {
+        return "You can ask me:\n\n• What is PAIMANA?\n• How does risk prediction work?\n• How are delays predicted?\n• How is cost overrun predicted?\n• What data is used?\n• What is the methodology?\n• How does GIS help?\n• What ML models are used?";
+    }
+
+
+    return "I can help with PAIMANA, project delays, cost overruns, risk prediction, GIS, machine learning, methodology and project data. Try asking: \"How does risk prediction work?\"";
+}
         </script>
     </body>
     </html>
