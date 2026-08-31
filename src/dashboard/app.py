@@ -1283,7 +1283,7 @@ function getPAIMANAAnswer(question) {
         q.includes("how it works") ||
         q.includes("workflow")
     ) {
-        return "PAIMANA follows this workflow:\n\n1. Historical project data\n2. Data cleaning and quality audit\n3. GIS and location intelligence\n4. Similar project analysis\n5. Machine learning prediction\n6. Cost, delay and risk assessment\n7. Actionable insights";
+        return "PAIMANA follows this workflow:\\n\\n1. Historical project data\\n2. Data cleaning and quality audit\\n3. GIS and location intelligence\\n4. Similar project analysis\\n5. Machine learning prediction\\n6. Cost, delay and risk assessment\\n7. Actionable insights";
     }
 
 
@@ -1403,11 +1403,11 @@ function getPAIMANAAnswer(question) {
         q.includes("help") ||
         q.includes("what can you do")
     ) {
-        return "You can ask me:\n\n• What is PAIMANA?\n• How does risk prediction work?\n• How are delays predicted?\n• How is cost overrun predicted?\n• What data is used?\n• What is the methodology?\n• How does GIS help?\n• What ML models are used?";
+        return "You can ask me:\\n\\n• What is PAIMANA?\\n• How does risk prediction work?\\n• How are delays predicted?\\n• How is cost overrun predicted?\\n• What data is used?\\n• What is the methodology?\\n• How does GIS help?\\n• What ML models are used?";
     }
 
 
-    return "I can help with PAIMANA, project delays, cost overruns, risk prediction, GIS, machine learning, methodology and project data. Try asking: \"How does risk prediction work?\"";
+    return "I can help with PAIMANA, project delays, cost overruns, risk prediction, GIS, machine learning, methodology and project data. Try asking: 'How does risk prediction work?'";
 }
         </script>
     </body>
