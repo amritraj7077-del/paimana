@@ -13,6 +13,18 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = ROOT_DIR / "data" / "project_intelligence_models.pkl"
 
+if not MODEL_PATH.exists() or MODEL_PATH.stat().st_size == 0:
+    # The models file is missing or empty (e.g. a placeholder committed to
+    # the repo). Generate lightweight placeholder models so the app can
+    # start up instead of crashing on import. These should be replaced with
+    # real, trained models as soon as they are available.
+    import sys
+
+    sys.path.insert(0, str(ROOT_DIR / "scripts"))
+    from generate_models import main as generate_models
+
+    generate_models()
+
 with open(MODEL_PATH, "rb") as f:
     models = pickle.load(f)
 
