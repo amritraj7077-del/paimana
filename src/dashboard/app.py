@@ -7,17 +7,15 @@ from flask import Flask, render_template, jsonify, request, send_file
 from flask_cors import CORS
 import pandas as pd
 import json
+import pickle
 from pathlib import Path
 import sys
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.scrapers.paimana_scraper import PAIMANAScraper
 from src.analytics.delay_detector import DelayAnalyzer
 from src.audit.quality_checker import DataQualityAuditor
-from src.analytics.ml_predictor import DelayPredictor
-from src.analytics.project_ml import predict_projects
 import plotly.graph_objects as go
 import plotly.utils
 
@@ -33,33 +31,43 @@ data_cache = {
 
 
 def load_or_generate_data():
-    """Load existing data or generate sample data"""
+    """Load project data from CSV file (df_reference extracted from pickle)"""
     if data_cache['projects'] is None:
-        # Try to load from CSV file first
-        csv_path = Path(__file__).parent.parent.parent / 'data' / 'processed' / 'maharashtra_projects_analyzed.csv'
+        # Load from df_reference.csv (extracted from project_intelligence_models.pkl)
+        csv_path = Path(__file__).parent.parent.parent / 'data' / 'processed' / 'df_reference.csv'
         
         if csv_path.exists():
             try:
                 df = pd.read_csv(csv_path)
-                # Ensure required columns exist
-                required_cols = ['project_id', 'project_name', 'district', 'category', 
-                               'sanctioned_cost', 'expenditure_to_date', 'physical_progress_percent']
-                for col in required_cols:
-                    if col not in df.columns:
-                        df[col] = '' if col in ['project_id', 'project_name', 'district', 'category'] else 0
+                print(f"Loaded {len(df)} projects from df_reference.csv")
+                
+                # Verify required columns exist
+                required_cols = ['Project Code', 'Project Name', 'State', 'Sector', 
+                               'Original Cost (Rs. Crore)', 'Cumulative Expenditure (Rs. Crore)', 
+                               'Physical Progress (%)']
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                if missing_cols:
+                    print(f"Warning: Missing columns in df_reference: {missing_cols}")
+                
             except Exception as e:
-                print(f"Error loading CSV: {e}, falling back to sample data")
-                scraper = PAIMANAScraper(state='maharashtra')
-                df = scraper.extract_projects()
+                print(f"Error loading CSV: {e}")
+                raise Exception(f"Failed to load project data from {csv_path}: {e}")
         else:
-            # Generate sample data if CSV doesn't exist
-            scraper = PAIMANAScraper(state='maharashtra')
-            df = scraper.extract_projects()
+            raise Exception(f"Project dataset file not found: {csv_path}")
         
-        # Run analytics
+        # Run analytics on df_reference
         analyzer = DelayAnalyzer()
-        df = analyzer.calculate_delay_days(df)
-        df = analyzer.calculate_cost_overrun(df)
+        
+        # Map df_reference columns to expected analytics columns
+        df['delay_days'] = df.get('Actual_Delay_Months', 0) * 30  # Convert months to days
+        df['sanctioned_cost'] = df.get('Original Cost (Rs. Crore)', 0) * 10000000  # Convert crore to rupees
+        df['expenditure_to_date'] = df.get('Cumulative Expenditure (Rs. Crore)', 0) * 10000000  # Convert crore to rupees
+        df['physical_progress_percent'] = df.get('Physical Progress (%)', 0)
+        df['project_id'] = df.get('Project Code', '')
+        df['project_name'] = df.get('Project Name', '')
+        df['district'] = df.get('State', '')
+        df['category'] = df.get('Sector', '')
+        
         analytics_report = analyzer.generate_analytics_report(df)
         
         # Run quality audit
@@ -67,14 +75,18 @@ def load_or_generate_data():
         quality_report = auditor.audit(df)
         quality_summary = auditor.generate_audit_summary(quality_report)
         
-        # Run trained ML models
-        predictions_df = predict_projects(df)
-
+        # ML predictions are already in df_reference (Risk_Level, Delay_Months, etc.)
+        # Create predictions DataFrame from df_reference
+        predictions_df = df.copy()
+        
+        # Map df_reference columns to expected prediction columns
+        predictions_df["ML_Predicted_Delay_Days"] = predictions_df.get("Actual_Delay_Months", 0) * 30
+        predictions_df["ML_Predicted_Cost_Overrun_%"] = predictions_df.get("Cost_Overrun_Ratio", 0) * 100
+        predictions_df["ML_Risk_Level"] = predictions_df.get("Risk_Level", "LOW")
+        predictions_df["ML_Risk_Confidence_%"] = 75.0  # Default confidence
+        
         # Keep old column names for dashboard compatibility
-        predictions_df["predicted_delay_days"] = (
-            predictions_df["ML_Predicted_Delay_Days"]
-        )
-
+        predictions_df["predicted_delay_days"] = predictions_df["ML_Predicted_Delay_Days"]
         predictions_df["predicted_completion_date"] = pd.NaT
 
         data_cache['projects'] = df
@@ -1365,7 +1377,8 @@ def api_quality():
 def api_delayed():
     """Get delayed projects only"""
     data = load_or_generate_data()
-    delayed = data['projects'][data['projects']['delay_days'] > 0]
+    # Use Actual_Delay_Months from df_reference
+    delayed = data['projects'][data['projects']['Actual_Delay_Months'] > 0]
     return delayed.to_json(orient='records')
 
 
@@ -1375,57 +1388,28 @@ def api_ml_predictions():
 
     data = load_or_generate_data()
 
-    # Get the projects currently displayed by the dashboard
-    df = data['projects'].copy()
-
-    # Convert dashboard data into the format expected by the trained model
-    df['Sector'] = df.get('category', 'Construction')
-    df['State'] = df.get('state', 'Maharashtra').astype(str).str.title()
-    df['Ministry'] = 'Ministry of Housing & Urban Affairs'
-
-    # Convert rupees to crore
-    df['Original Cost (Rs. Crore)'] = (
-        pd.to_numeric(df.get('sanctioned_cost', 0), errors='coerce')
-        .fillna(0) / 10000000
-    )
-
-    df['Cumulative Expenditure (Rs. Crore)'] = (
-        pd.to_numeric(df.get('expenditure_to_date', 0), errors='coerce')
-        .fillna(0) / 10000000
-    )
-
-    df['Physical Progress (%)'] = (
-        pd.to_numeric(df.get('physical_progress_percent', 0), errors='coerce')
-        .fillna(0)
-    )
-
-    # Demo projects do not have approval years,
-    # so use the current project-era year.
-    df['Approval_Year'] = 2024
-
-    # Run the ACTUAL trained ML models
-    predictions = predict_projects(df)
+    # Get predictions from df_reference (already contains ML predictions)
+    predictions_df = data['predictions'].copy()
 
     # Sort by predicted delay
-    predictions = predictions.sort_values(
-        'ML_Predicted_Delay_Days',
+    predictions_df = predictions_df.sort_values(
+        'predicted_delay_days',
         ascending=False
     ).head(10)
 
     # Return data required by the website
     result = []
 
-    for _, row in predictions.iterrows():
-
+    for _, row in predictions_df.iterrows():
         result.append({
-            'project_id': row.get('project_id', 'N/A'),
-            'project_name': row.get('project_name', 'Unknown'),
-            'district': row.get('district', 'N/A'),
+            'project_id': row.get('Project Code', 'N/A'),
+            'project_name': row.get('Project Name', 'Unknown'),
+            'district': row.get('State', 'N/A'),
             'physical_progress_percent': float(
-                row.get('physical_progress_percent', 0)
+                row.get('Physical Progress (%)', 0)
             ),
             'predicted_delay_days': int(
-                row.get('ML_Predicted_Delay_Days', 0)
+                row.get('predicted_delay_days', 0)
             ),
             'cost_overrun_percent': round(
                 float(row.get('ML_Predicted_Cost_Overrun_%', 0)),
@@ -1512,47 +1496,47 @@ def api_map_data():
     data = load_or_generate_data()
     df = data['projects'].copy()
     
-    # For demo: use approximate coordinates for Maharashtra districts
-    district_coords = {
-        'Mumbai': (19.0760, 72.8777),
-        'Pune': (18.5204, 73.8567),
-        'Nagpur': (21.1458, 79.0882),
-        'Nashik': (19.9975, 73.7898),
-        'Aurangabad': (19.8762, 75.3433),
-        'Solapur': (17.6599, 75.9064),
-        'Kolhapur': (16.7050, 74.2433)
-    }
+    # Check if df_reference has geographic coordinates
+    geo_cols = [col for col in df.columns if 'lat' in col.lower() or 'lon' in col.lower() or 'coord' in col.lower()]
     
-    latitudes = []
-    longitudes = []
+    if geo_cols:
+        # Use actual coordinates from df_reference
+        lat_col = next((col for col in geo_cols if 'lat' in col.lower()), geo_cols[0])
+        lon_col = next((col for col in geo_cols if 'lon' in col.lower()), geo_cols[-1])
+        
+        latitudes = df[lat_col].tolist()
+        longitudes = df[lon_col].tolist()
+    else:
+        # No geographic data available - return empty coordinates with message
+        return jsonify({
+            'error': 'Geographic coordinates not available in dataset',
+            'latitudes': [],
+            'longitudes': [],
+            'labels': [],
+            'colors': [],
+            'message': 'The project dataset does not contain latitude/longitude coordinates. Map visualization requires geographic data.'
+        })
+    
     labels = []
     colors = []
     
     for _, project in df.iterrows():
-        district = project.get('district', 'Mumbai')
-        coords = district_coords.get(district, (19.5, 75.5))  # Default to Maharashtra center
+        # Create hover label using df_reference columns
+        delay_months = project.get('Actual_Delay_Months', 0)
+        progress = project.get('Physical Progress (%)', 0)
+        project_name = project.get('Project Name', 'Unknown')
+        state = project.get('State', 'N/A')
         
-        # Add small random variation to avoid overlapping markers
-        import random
-        lat = coords[0] + random.uniform(-0.1, 0.1)
-        lon = coords[1] + random.uniform(-0.1, 0.1)
-        
-        latitudes.append(lat)
-        longitudes.append(lon)
-        
-        # Create hover label
-        delay_days = project.get('delay_days', 0)
-        progress = project.get('physical_progress_percent', 0)
-        label = f"<b>{project.get('project_name', 'Unknown')}</b><br>"
-        label += f"District: {district}<br>"
+        label = f"<b>{project_name}</b><br>"
+        label += f"State: {state}<br>"
         label += f"Progress: {progress:.1f}%<br>"
-        label += f"Delay: {delay_days} days"
+        label += f"Delay: {delay_months} months"
         labels.append(label)
         
         # Color based on delay status
-        if delay_days <= 0:
+        if delay_months <= 0:
             colors.append(0)  # Green - on time
-        elif delay_days <= 100:
+        elif delay_months <= 6:
             colors.append(50)  # Orange - moderate delay
         else:
             colors.append(100)  # Red - critical delay
