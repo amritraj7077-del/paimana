@@ -622,7 +622,75 @@ def index():
                     <div class="loading">Similar projects feature coming soon</div>
                 </div>
             </div>
-            
+            <div class="card" id="section-chatbot">
+
+    <h2>🤖 PAIMANA Intelligence Assistant</h2>
+
+    <p style="color:#7f8c8d;margin-bottom:20px;">
+        Ask questions about infrastructure projects,
+        delays, cost overruns, risk and PAIMANA.
+    </p>
+
+    <div id="chat-messages"
+         style="
+         height:360px;
+         overflow-y:auto;
+         background:#f8f9fa;
+         border:1px solid #dee2e6;
+         border-radius:10px;
+         padding:15px;
+         margin-bottom:15px;
+         ">
+
+        <div style="
+             background:#e8f5e9;
+             padding:12px;
+             border-radius:10px;
+             margin-bottom:10px;
+             max-width:80%;
+             ">
+            <strong>🤖 PAIMANA Assistant</strong><br>
+            Hello! I can answer questions about PAIMANA,
+            project delays, cost overruns, risk prediction,
+            machine learning and the project methodology.
+        </div>
+
+    </div>
+
+    <div style="display:flex;gap:10px;">
+
+        <input
+            id="chat-input"
+            type="text"
+            placeholder="Ask something..."
+            style="
+                flex:1;
+                padding:13px;
+                border:1px solid #ced4da;
+                border-radius:8px;
+                font-size:15px;
+            "
+            onkeydown="if(event.key==='Enter') sendMessage()"
+        >
+
+        <button
+            onclick="sendMessage()"
+            style="
+                padding:13px 22px;
+                background:#1B6B3A;
+                color:white;
+                border:none;
+                border-radius:8px;
+                cursor:pointer;
+                font-weight:600;
+            "
+        >
+            Send
+        </button>
+
+    </div>
+
+</div>
             <div class="card" id="section-insights">
                 <h2>AI-Generated Insights</h2>
                 <p style="color: #7f8c8d; margin-bottom: 20px;">AI-powered insights and recommendations based on project data analysis.</p>
