@@ -520,6 +520,10 @@ def index():
                     <i data-lucide="search"></i>
                     <span>Similar Projects</span>
                 </div>
+                <div class="nav-item" onclick="navigateTo('chatbot')" id="nav-chatbot">
+    <i data-lucide="message-circle"></i>
+    <span>AI Assistant</span>
+</div>
                 <div class="nav-item" onclick="navigateTo('insights')" id="nav-insights">
                     <i data-lucide="sparkles"></i>
                     <span>AI Insights</span>
