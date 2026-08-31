@@ -49,22 +49,22 @@ def load_or_generate_data():
         quality_summary = auditor.generate_audit_summary(quality_report)
         
         # Run trained ML models
-predictions_df = predict_projects(df)
+        predictions_df = predict_projects(df)
 
-# Keep old column names for dashboard compatibility
-predictions_df["predicted_delay_days"] = (
-    predictions_df["ML_Predicted_Delay_Days"]
-)
+        # Keep old column names for dashboard compatibility
+        predictions_df["predicted_delay_days"] = (
+            predictions_df["ML_Predicted_Delay_Days"]
+        )
 
-predictions_df["predicted_completion_date"] = pd.NaT
+        predictions_df["predicted_completion_date"] = pd.NaT
 
-data_cache['projects'] = df
-data_cache['analytics'] = analytics_report
-data_cache['quality_report'] = quality_summary
-data_cache['predictor'] = None
-data_cache['predictions'] = predictions_df
-    
-return data_cache
+        data_cache['projects'] = df
+        data_cache['analytics'] = analytics_report
+        data_cache['quality_report'] = quality_summary
+        data_cache['predictor'] = None
+        data_cache['predictions'] = predictions_df
+
+    return data_cache
 
 
 @app.route('/')
