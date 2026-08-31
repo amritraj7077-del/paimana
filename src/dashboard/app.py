@@ -35,9 +35,26 @@ data_cache = {
 def load_or_generate_data():
     """Load existing data or generate sample data"""
     if data_cache['projects'] is None:
-        # For MVP, generate sample data
-        scraper = PAIMANAScraper(state='maharashtra')
-        df = scraper.extract_projects()
+        # Try to load from CSV file first
+        csv_path = Path(__file__).parent.parent.parent / 'data' / 'processed' / 'maharashtra_projects_analyzed.csv'
+        
+        if csv_path.exists():
+            try:
+                df = pd.read_csv(csv_path)
+                # Ensure required columns exist
+                required_cols = ['project_id', 'project_name', 'district', 'category', 
+                               'sanctioned_cost', 'expenditure_to_date', 'physical_progress_percent']
+                for col in required_cols:
+                    if col not in df.columns:
+                        df[col] = '' if col in ['project_id', 'project_name', 'district', 'category'] else 0
+            except Exception as e:
+                print(f"Error loading CSV: {e}, falling back to sample data")
+                scraper = PAIMANAScraper(state='maharashtra')
+                df = scraper.extract_projects()
+        else:
+            # Generate sample data if CSV doesn't exist
+            scraper = PAIMANAScraper(state='maharashtra')
+            df = scraper.extract_projects()
         
         # Run analytics
         analyzer = DelayAnalyzer()
