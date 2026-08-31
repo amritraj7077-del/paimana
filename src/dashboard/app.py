@@ -48,11 +48,16 @@ def load_or_generate_data():
         quality_report = auditor.audit(df)
         quality_summary = auditor.generate_audit_summary(quality_report)
         
-        # Train ML predictor
-        predictor = DelayPredictor()
-        predictor.train(df)
-        predictions_df = predictor.predict_completion_date(df)
-        
+        # Run trained ML models
+predictions_df = predict_projects(df)
+
+# Keep old column names for dashboard compatibility
+predictions_df["predicted_delay_days"] = (
+    predictions_df["ML_Predicted_Delay_Days"]
+)
+
+predictions_df["predicted_completion_date"] = pd.NaT
+
         data_cache['projects'] = df
         data_cache['analytics'] = analytics_report
         data_cache['quality_report'] = quality_summary
