@@ -819,22 +819,24 @@ def index():
                 }
             });
             
-            // Fetch and display data
-            fetch('/api/analytics')
+            // ── helpers ──────────────────────────────────────────────────────────
+            function fetchWithTimeout(url, timeoutMs) {
+                const ctrl = new AbortController();
+                const id = setTimeout(() => ctrl.abort(), timeoutMs);
+                return fetch(url, { signal: ctrl.signal })
+                    .finally(() => clearTimeout(id));
+            }
+
+            // Fetch and display Quick Statistics + Delayed Projects + Cost Overruns
+            fetchWithTimeout('/api/analytics', 30000)
                 .then(r => {
-                    if (!r.ok) {
-                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 })
                 .then(data => {
                     console.log('Analytics data received:', data);
-                    
-                    // Validate response structure
-                    if (!data || !data.summary_statistics) {
-                        throw new Error('Invalid analytics data structure');
-                    }
-                    
+                    if (!data || !data.summary_statistics) throw new Error('Invalid analytics data structure');
+
                     const stats = data.summary_statistics;
                     document.getElementById('stats').innerHTML = `
                         <div class="stat-card">
@@ -868,33 +870,39 @@ def index():
                         renderDelayedProjects(data.top_delayed_projects);
                     }
                     
-                    // Cost overruns
+                    // Cost overruns — costs already in Crore from CSV; display directly
                     if (data.top_cost_overruns && data.top_cost_overruns.length > 0) {
-                        let table = '<table><tr><th>Project ID</th><th>Name</th><th>Overrun %</th><th>Sanctioned</th><th>Spent</th></tr>';
+                        let table = '<table><tr><th>Project ID</th><th>Name</th><th>Overrun %</th><th>Sanctioned (₹ Cr)</th><th>Spent (₹ Cr)</th></tr>';
                         data.top_cost_overruns.slice(0, 10).forEach(p => {
+                            const sanctioned = (p.sanctioned_cost / 10000000).toFixed(2);
+                            const spent = (p.expenditure_to_date / 10000000).toFixed(2);
                             table += `<tr>
                                 <td><strong>${p.project_id}</strong></td>
                                 <td>${p.project_name}</td>
                                 <td style="color: #dc3545; font-weight: 600;">${p.cost_overrun_percent.toFixed(1)}%</td>
-                                <td>₹${(p.sanctioned_cost/10000000).toFixed(2)} Cr</td>
-                                <td>₹${(p.expenditure_to_date/10000000).toFixed(2)} Cr</td>
+                                <td>₹${sanctioned} Cr</td>
+                                <td>₹${spent} Cr</td>
                             </tr>`;
                         });
                         table += '</table>';
                         document.getElementById('overruns').innerHTML = table;
+                    } else {
+                        document.getElementById('overruns').innerHTML = '<p style="color:#6c757d;padding:20px;">No significant cost overruns detected.</p>';
                     }
                 })
                 .catch(err => {
+                    const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
                     console.error('Error loading analytics:', err);
-                    document.getElementById('stats').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load statistics: ${err.message}. Please refresh the page.</p>`;
+                    document.getElementById('stats').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load statistics: ${msg}. Please refresh the page.</p>`;
+                    document.getElementById('delayed').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load delayed projects: ${msg}</p>`;
+                    document.getElementById('overruns').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load cost overruns: ${msg}</p>`;
                 });
+
             
             // Fetch ML predictions
-            fetch('/api/ml-predictions')
+            fetchWithTimeout('/api/ml-predictions', 30000)
                 .then(r => {
-                    if (!r.ok) {
-                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 })
                 .then(predictions => {
@@ -920,16 +928,16 @@ def index():
                     }
                 })
                 .catch(err => {
+                    const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
                     console.error('Error loading ML predictions:', err);
-                    document.getElementById('ml-predictions').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load ML predictions: ${err.message}</p>`;
+                    document.getElementById('ml-predictions').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load ML predictions: ${msg}</p>`;
                 });
+
             
             // Fetch and render category chart
-            fetch('/api/category-chart')
+            fetchWithTimeout('/api/category-chart', 30000)
                 .then(r => {
-                    if (!r.ok) {
-                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 })
                 .then(figJson => {
@@ -938,16 +946,16 @@ def index():
                     Plotly.newPlot('category-chart', fig.data, fig.layout, {responsive: true});
                 })
                 .catch(err => {
+                    const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
                     console.error('Error loading category chart:', err);
-                    document.getElementById('category-chart').innerHTML = `<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load category chart: ${err.message}</p>`;
+                    document.getElementById('category-chart').innerHTML = `<p style="text-align:center;padding:40px;color:#dc3545;">⚠ Failed to load category chart: ${msg}</p>`;
                 });
+
             
             // Fetch quality data
-            fetch('/api/quality')
+            fetchWithTimeout('/api/quality', 30000)
                 .then(r => {
-                    if (!r.ok) {
-                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 })
                 .then(data => {
@@ -977,16 +985,15 @@ def index():
                     `;
                 })
                 .catch(err => {
+                    const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
                     console.error('Error loading quality data:', err);
-                    document.getElementById('quality').innerHTML = `<p style="color: #dc3545; padding: 20px;">Failed to load quality data: ${err.message}</p>`;
+                    document.getElementById('quality').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load quality data: ${msg}</p>`;
                 });
-            
+
             // Fetch map data
-            fetch('/api/map-data')
+            fetchWithTimeout('/api/map-data', 30000)
                 .then(r => {
-                    if (!r.ok) {
-                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    }
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
                     return r.json();
                 })
                 .then(data => {
@@ -1034,9 +1041,11 @@ def index():
                     Plotly.newPlot('map', [trace], layout, {responsive: true});
                 })
                 .catch(err => {
+                    const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
                     console.error('Error loading map data:', err);
-                    document.getElementById('map').innerHTML = `<p style="text-align: center; padding: 40px; color: #dc3545;">Failed to load map data: ${err.message}</p>`;
+                    document.getElementById('map').innerHTML = `<p style="text-align:center;padding:40px;color:#dc3545;">⚠ Failed to load map data: ${msg}</p>`;
                 });
+
             
             // Filter functions
             function populateFilters() {
@@ -1434,11 +1443,25 @@ def api_quality():
 
 @app.route('/api/delayed')
 def api_delayed():
-    """Get delayed projects only"""
+    """Get delayed projects only — returns the columns the frontend table expects"""
     data = load_or_generate_data()
-    # Use Actual_Delay_Months from df_reference
-    delayed = data['projects'][data['projects']['Actual_Delay_Months'] > 0]
-    return delayed.to_json(orient='records')
+    df = data['projects'].copy()
+    # Filter to actually delayed rows
+    delayed = df[df['Actual_Delay_Months'] > 0].copy()
+    # Shape to what the frontend renders
+    result = []
+    for _, row in delayed.iterrows():
+        result.append({
+            'project_id': str(row.get('Project Code', 'N/A')),
+            'project_name': str(row.get('Project Name', 'Unknown')),
+            'district': str(row.get('State', 'N/A')),
+            'delay_days': float(row.get('delay_days', row.get('Actual_Delay_Months', 0) * 30)),
+            'physical_progress_percent': float(row.get('Physical Progress (%)', 0)),
+            'category': str(row.get('Sector', 'N/A')),
+            'risk_level': str(row.get('Risk_Level', 'N/A')),
+        })
+    import json as _json
+    return _json.dumps(result, default=str), 200, {'Content-Type': 'application/json'}
 
 
 @app.route('/api/ml-predictions')
@@ -1554,52 +1577,59 @@ def api_map_data():
     """Get geo-location data for map visualization"""
     data = load_or_generate_data()
     df = data['projects'].copy()
-    
-    # Check if df_reference has geographic coordinates
-    geo_cols = [col for col in df.columns if 'lat' in col.lower() or 'lon' in col.lower() or 'coord' in col.lower()]
-    
-    if geo_cols:
-        # Use actual coordinates from df_reference
-        lat_col = next((col for col in geo_cols if 'lat' in col.lower()), geo_cols[0])
-        lon_col = next((col for col in geo_cols if 'lon' in col.lower()), geo_cols[-1])
-        
-        latitudes = df[lat_col].tolist()
-        longitudes = df[lon_col].tolist()
-    else:
-        # No geographic data available - return empty coordinates with message
+
+    # Strict geo-column detection: match ONLY columns whose name IS (or starts with)
+    # 'lat' / 'latitude' / 'lon' / 'longitude'.  This avoids false positives like
+    # 'Cumulative Expenditure (Rs. Crore)' which contains 'lon' as a substring.
+    EXACT_GEO = {'latitude', 'longitude', 'lat', 'lon', 'lng'}
+    geo_cols = [
+        col for col in df.columns
+        if col.strip().lower() in EXACT_GEO
+        or col.strip().lower().startswith('latitude')
+        or col.strip().lower().startswith('longitude')
+    ]
+
+    lat_col = next((col for col in geo_cols if col.strip().lower().startswith('lat')), None)
+    lon_col = next((col for col in geo_cols if col.strip().lower() in {'longitude', 'lon', 'lng'}
+                    or col.strip().lower().startswith('longitude')), None)
+
+    if not lat_col or not lon_col:
+        # Dataset has no GPS coordinates — return a clean informational response
         return jsonify({
             'error': 'Geographic coordinates not available in dataset',
             'latitudes': [],
             'longitudes': [],
             'labels': [],
             'colors': [],
-            'message': 'The project dataset does not contain latitude/longitude coordinates. Map visualization requires geographic data.'
+            'message': 'The project dataset does not contain latitude/longitude coordinates. '
+                       'Map visualization requires geographic data.'
         })
-    
+
+    latitudes = df[lat_col].tolist()
+    longitudes = df[lon_col].tolist()
+
     labels = []
     colors = []
-    
+
     for _, project in df.iterrows():
-        # Create hover label using df_reference columns
         delay_months = project.get('Actual_Delay_Months', 0)
         progress = project.get('Physical Progress (%)', 0)
         project_name = project.get('Project Name', 'Unknown')
         state = project.get('State', 'N/A')
-        
+
         label = f"<b>{project_name}</b><br>"
         label += f"State: {state}<br>"
         label += f"Progress: {progress:.1f}%<br>"
         label += f"Delay: {delay_months} months"
         labels.append(label)
-        
-        # Color based on delay status
+
         if delay_months <= 0:
-            colors.append(0)  # Green - on time
+            colors.append(0)   # Green - on time
         elif delay_months <= 6:
             colors.append(50)  # Orange - moderate delay
         else:
-            colors.append(100)  # Red - critical delay
-    
+            colors.append(100) # Red - critical delay
+
     return jsonify({
         'latitudes': latitudes,
         'longitudes': longitudes,
