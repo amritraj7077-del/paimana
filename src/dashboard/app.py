@@ -964,13 +964,10 @@ def index():
             
             // Fetch and render category chart
             fetchWithTimeout('/api/category-chart', 30000)
-                .then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
                 .then(figJson => {
                     console.log('Category chart data received');
-                    const fig = JSON.parse(figJson);
+                    // figJson may be a pre-serialised string or already a plain object
+                    const fig = (typeof figJson === 'string') ? JSON.parse(figJson) : figJson;
                     Plotly.newPlot('category-chart', fig.data, fig.layout, {responsive: true});
                 })
                 .catch(err => {
@@ -982,33 +979,31 @@ def index():
             
             // Fetch quality data
             fetchWithTimeout('/api/quality', 30000)
-                .then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
-                .then(data => {
-                    console.log('Quality data received:', data);
+                .then(res => {
+                    console.log('[Dashboard] quality response:', res);
+                    const data = (res && res.data) ? res.data : res;
+                    console.log('[Dashboard] quality data:', data);
                     document.getElementById('quality').innerHTML = `
                         <div class="grid">
                             <div class="stat-card">
-                                <div class="stat-value">${data.overall_grade}</div>
+                                <div class="stat-value">${data.overall_grade || 'N/A'}</div>
                                 <div class="stat-label">Quality Grade</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value">${data.reliability_score}</div>
+                                <div class="stat-value">${data.reliability_score || 'N/A'}</div>
                                 <div class="stat-label">Reliability</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value">${data.valid_records}/${data.total_records}</div>
+                                <div class="stat-value">${data.valid_records || 0}/${data.total_records || 0}</div>
                                 <div class="stat-label">Valid Records</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value">${data.anomalies.total}</div>
+                                <div class="stat-value">${data.anomalies?.total || 0}</div>
                                 <div class="stat-label">Anomalies</div>
                             </div>
                         </div>
                         <p style="padding: 12px; background: #e8f5e9; border-left: 4px solid #27ae60; border-radius: 4px; margin-top: 16px; font-size: 0.9em;">
-                            <strong>${data.recommendation}</strong>
+                            <strong>${data.recommendation || 'No recommendation available'}</strong>
                         </p>
                     `;
                 })
@@ -1020,10 +1015,6 @@ def index():
 
             // Fetch map data
             fetchWithTimeout('/api/map-data', 30000)
-                .then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
                 .then(data => {
                     console.log('Map data received:', data);
                     
@@ -1455,10 +1446,10 @@ function simpleMarkdownParse(text) {
     html = html.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 5px 0;color:#1B6B3A;">$1</h4>');
     html = html.replace(/^## (.*$)/gim, '<h3 style="margin:12px 0 6px 0;color:#1B6B3A;">$1</h3>');
     html = html.replace(/^# (.*$)/gim, '<h2 style="margin:14px 0 8px 0;color:#1B6B3A;">$1</h2>');
-    html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
-    html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
+    html = html.replace(/[*][*](.*?)[*][*]/g, '<strong>$1</strong>');
+    html = html.replace(/[*](.*?)[*]/g, '<em>$1</em>');
     html = html.replace(/`(.*?)`/g, '<code style="background:#e0e0e0;padding:2px 5px;border-radius:4px;">$1</code>');
-    html = html.replace(/\n/g, '<br>');
+    html = html.replace(/\\n/g, '<br>');
     return html;
 }
         </script>
@@ -1713,13 +1704,62 @@ def api_projects_excel():
 
 @app.route('/api/map-data')
 def api_map_data():
-    """Get geo-location data for map visualization"""
+    """Get geo-location data for map visualization derived from the State column.
+
+    Uses a hardcoded Indian-state centroid lookup — no external geocoding,
+    no extra data loading, no repeated expensive work.
+    Projects are aggregated per state so we get at most ~35 markers.
+    """
+    # ── Hardcoded Indian state / UT centroids (lat, lon) ─────────────────────
+    STATE_COORDS = {
+        'andhra pradesh':       (15.9129,  79.7400),
+        'arunachal pradesh':    (28.2180,  94.7278),
+        'assam':                (26.2006,  92.9376),
+        'bihar':                (25.0961,  85.3131),
+        'chhattisgarh':         (21.2787,  81.8661),
+        'goa':                  (15.2993,  74.1240),
+        'gujarat':              (22.2587,  71.1924),
+        'haryana':              (29.0588,  76.0856),
+        'himachal pradesh':     (31.1048,  77.1734),
+        'jharkhand':            (23.6102,  85.2799),
+        'jammu and kashmir':    (33.7782,  76.5762),
+        'jammu & kashmir':      (33.7782,  76.5762),
+        'karnataka':            (15.3173,  75.7139),
+        'kerala':               (10.8505,  76.2711),
+        'ladakh':               (34.1526,  77.5770),
+        'madhya pradesh':       (22.9734,  78.6569),
+        'maharashtra':          (19.7515,  75.7139),
+        'manipur':              (24.6637,  93.9063),
+        'meghalaya':            (25.4670,  91.3662),
+        'mizoram':              (23.1645,  92.9376),
+        'nagaland':             (26.1584,  94.5624),
+        'odisha':               (20.9517,  85.0985),
+        'punjab':               (31.1471,  75.3412),
+        'rajasthan':            (27.0238,  74.2179),
+        'sikkim':               (27.5330,  88.5122),
+        'tamil nadu':           (11.1271,  78.6569),
+        'telangana':            (18.1124,  79.0193),
+        'tripura':              (23.9408,  91.9882),
+        'uttar pradesh':        (26.8467,  80.9462),
+        'uttarakhand':          (30.0668,  79.0193),
+        'west bengal':          (22.9868,  87.8550),
+        # Union territories
+        'andaman & nicobar':    (11.7401,  92.6586),
+        'andaman and nicobar':  (11.7401,  92.6586),
+        'chandigarh':           (30.7333,  76.7794),
+        'dadra & nagar haveli and daman & diu': (20.1809, 73.0169),
+        'dadra and nagar haveli and daman and diu': (20.1809, 73.0169),
+        'delhi':                (28.6139,  77.2090),
+        'lakshadweep':          (10.5667,  72.6417),
+        'puducherry':           (11.9416,  79.8083),
+    }
+    # Fallback: geographic centre of India
+    INDIA_CENTRE = (20.5937, 78.9629)
+
     data = load_or_generate_data()
     df = data['projects'].copy()
 
-    # Strict geo-column detection: match ONLY columns whose name IS (or starts with)
-    # 'lat' / 'latitude' / 'lon' / 'longitude'.  This avoids false positives like
-    # 'Cumulative Expenditure (Rs. Crore)' which contains 'lon' as a substring.
+    # ── Check whether the dataset already has GPS columns ────────────────────
     EXACT_GEO = {'latitude', 'longitude', 'lat', 'lon', 'lng'}
     geo_cols = [
         col for col in df.columns
@@ -1727,53 +1767,114 @@ def api_map_data():
         or col.strip().lower().startswith('latitude')
         or col.strip().lower().startswith('longitude')
     ]
+    lat_col = next((c for c in geo_cols if c.strip().lower().startswith('lat')), None)
+    lon_col = next((c for c in geo_cols
+                    if c.strip().lower() in {'longitude', 'lon', 'lng'}
+                    or c.strip().lower().startswith('longitude')), None)
 
-    lat_col = next((col for col in geo_cols if col.strip().lower().startswith('lat')), None)
-    lon_col = next((col for col in geo_cols if col.strip().lower() in {'longitude', 'lon', 'lng'}
-                    or col.strip().lower().startswith('longitude')), None)
+    if lat_col and lon_col:
+        # Dataset has real GPS — use it directly (original code path)
+        latitudes  = df[lat_col].tolist()
+        longitudes = df[lon_col].tolist()
+        labels, colors = [], []
+        for _, row in df.iterrows():
+            dm = float(row.get('Actual_Delay_Months', 0) or 0)
+            pr = float(row.get('Physical Progress (%)', 0) or 0)
+            lbl = (f"<b>{row.get('Project Name','Unknown')}</b><br>"
+                   f"State: {row.get('State','N/A')}<br>"
+                   f"Progress: {pr:.1f}%<br>Delay: {dm:.0f} months")
+            labels.append(lbl)
+            colors.append(0 if dm <= 0 else (50 if dm <= 6 else 100))
+        return jsonify({'latitudes': latitudes, 'longitudes': longitudes,
+                        'labels': labels, 'colors': colors})
 
-    if not lat_col or not lon_col:
-        # Dataset has no GPS coordinates — return a clean informational response
+    # ── Derive coordinates from the State column ──────────────────────────────
+    state_col = next((c for c in df.columns if c.strip().lower() == 'state'), None)
+    if not state_col:
         return jsonify({
-            'error': 'Geographic coordinates not available in dataset',
-            'latitudes': [],
-            'longitudes': [],
-            'labels': [],
-            'colors': [],
-            'message': 'The project dataset does not contain latitude/longitude coordinates. '
-                       'Map visualization requires geographic data.'
+            'error': 'No usable geographic field found',
+            'latitudes': [], 'longitudes': [], 'labels': [], 'colors': [],
+            'message': 'No State, latitude or longitude column found in the dataset.'
         })
 
-    latitudes = df[lat_col].tolist()
-    longitudes = df[lon_col].tolist()
+    def _resolve(raw_state):
+        """Return (lat, lon) for a state string, or None if unresolvable."""
+        if not raw_state or str(raw_state).strip().lower() in ('nan', 'offshore', 'pan india'):
+            return None
+        cleaned = ' '.join(str(raw_state).replace('\n', ' ').split()).lower()
+        # Direct match
+        if cleaned in STATE_COORDS:
+            return STATE_COORDS[cleaned]
+        # Try each word segment for multi-state entries
+        # e.g. "multi-states\n(Bihar, Uttar\nPradesh)" → use first named state
+        import re as _re
+        # Strip the "Multi-States (...)" wrapper and try states inside
+        inner = _re.sub(r'multi-?states?\s*\(', '', cleaned, flags=_re.I)
+        inner = inner.replace(')', '').strip()
+        for part in _re.split(r'[,\n&]+', inner):
+            part = ' '.join(part.split()).lower()
+            if part in STATE_COORDS:
+                return STATE_COORDS[part]
+        # Partial match as last resort
+        for key, coord in STATE_COORDS.items():
+            if key in cleaned or cleaned in key:
+                return coord
+        return None
 
-    labels = []
-    colors = []
+    # Aggregate: one marker per unique (state → coord) with project counts
+    from collections import defaultdict
+    agg = defaultdict(lambda: {'lat': None, 'lon': None, 'count': 0,
+                                'delayed': 0, 'total_delay': 0.0, 'total_progress': 0.0})
 
-    for _, project in df.iterrows():
-        delay_months = project.get('Actual_Delay_Months', 0)
-        progress = project.get('Physical Progress (%)', 0)
-        project_name = project.get('Project Name', 'Unknown')
-        state = project.get('State', 'N/A')
+    for _, row in df.iterrows():
+        raw = str(row.get(state_col, '') or '')
+        coord = _resolve(raw)
+        if coord is None:
+            continue
+        key = raw.replace('\n', ' ').strip()[:60]   # short stable key
+        entry = agg[key]
+        entry['lat']    = coord[0]
+        entry['lon']    = coord[1]
+        entry['count'] += 1
+        dm = float(row.get('Actual_Delay_Months', 0) or 0)
+        entry['total_delay']    += dm
+        entry['total_progress'] += float(row.get('Physical Progress (%)', 0) or 0)
+        if dm > 0:
+            entry['delayed'] += 1
 
-        label = f"<b>{project_name}</b><br>"
-        label += f"State: {state}<br>"
-        label += f"Progress: {progress:.1f}%<br>"
-        label += f"Delay: {delay_months} months"
-        labels.append(label)
+    if not agg:
+        return jsonify({
+            'error': 'No mappable state data',
+            'latitudes': [], 'longitudes': [], 'labels': [], 'colors': [],
+            'message': 'State column exists but no entries could be mapped to coordinates.'
+        })
 
-        if delay_months <= 0:
-            colors.append(0)   # Green - on time
-        elif delay_months <= 6:
-            colors.append(50)  # Orange - moderate delay
-        else:
-            colors.append(100) # Red - critical delay
+    latitudes, longitudes, labels, colors = [], [], [], []
+    for state_key, e in agg.items():
+        n       = e['count']
+        avg_dm  = e['total_delay']    / n
+        avg_pr  = e['total_progress'] / n
+        delayed = e['delayed']
+
+        latitudes.append(e['lat'])
+        longitudes.append(e['lon'])
+
+        lbl = (f"<b>{state_key}</b><br>"
+               f"Projects: {n}<br>"
+               f"Delayed: {delayed} ({100*delayed//n}%)<br>"
+               f"Avg Progress: {avg_pr:.1f}%<br>"
+               f"Avg Delay: {avg_dm:.0f} months")
+        labels.append(lbl)
+
+        # Colour by fraction delayed
+        frac = delayed / n if n else 0
+        colors.append(0 if frac < 0.25 else (50 if frac < 0.60 else 100))
 
     return jsonify({
-        'latitudes': latitudes,
+        'latitudes':  latitudes,
         'longitudes': longitudes,
-        'labels': labels,
-        'colors': colors
+        'labels':     labels,
+        'colors':     colors
     })
 
 
