@@ -175,6 +175,34 @@ def index():
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
         <script src="https://unpkg.com/lucide@latest"></script>
         <style>
+            :root {
+                --bg-primary: #f5f5f5;
+                --bg-card: #ffffff;
+                --bg-sidebar: #ffffff;
+                --text-primary: #1a365d;
+                --text-secondary: #6c757d;
+                --text-muted: #a0aec0;
+                --border-color: #e9ecef;
+                --border-dark: #dee2e6;
+                --primary: #1B6B3A;
+                --primary-light: #f0fdf4;
+                --primary-hover: #145a32;
+            }
+
+            [data-theme="dark"] {
+                --bg-primary: #0d1117;
+                --bg-card: #161b22;
+                --bg-sidebar: #161b22;
+                --text-primary: #e6edf3;
+                --text-secondary: #8b949e;
+                --text-muted: #6e7681;
+                --border-color: #30363d;
+                --border-dark: #21262d;
+                --primary: #4CAF7A;
+                --primary-light: #1e3a2e;
+                --primary-hover: #2ECC71;
+            }
+
             * {
                 margin: 0;
                 padding: 0;
@@ -523,6 +551,83 @@ def index():
             tr.clickable:hover {
                 background: #e3f2fd !important;
             }
+
+            /* Workflow Section */
+            .workflow-section {
+                background: #ffffff;
+                padding: 32px;
+                border-radius: 8px;
+                margin-bottom: 24px;
+                border: 1px solid #dee2e6;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+
+            .workflow-title {
+                color: #1a365d;
+                font-size: 1.5em;
+                font-weight: 600;
+                margin-bottom: 24px;
+                text-align: center;
+            }
+
+            .workflow-steps {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 20px;
+            }
+
+            .workflow-step {
+                flex: 1;
+                text-align: center;
+                position: relative;
+            }
+
+            .workflow-step-number {
+                display: inline-block;
+                width: 40px;
+                height: 40px;
+                background: #1B6B3A;
+                color: white;
+                border-radius: 50%;
+                line-height: 40px;
+                font-weight: 700;
+                font-size: 14px;
+                margin-bottom: 12px;
+            }
+
+            .workflow-step-title {
+                color: #1B6B3A;
+                font-weight: 600;
+                font-size: 14px;
+                margin-bottom: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+
+            .workflow-step-desc {
+                color: #6c757d;
+                font-size: 13px;
+                line-height: 1.5;
+                white-space: pre-line;
+            }
+
+            .workflow-arrow {
+                color: #1B6B3A;
+                font-size: 24px;
+                margin-top: 20px;
+            }
+
+            @media (max-width: 768px) {
+                .workflow-steps {
+                    flex-direction: column;
+                }
+
+                .workflow-arrow {
+                    transform: rotate(90deg);
+                    margin: 12px auto;
+                }
+            }
             
             /* Responsive styles */
             @media (max-width: 1024px) {
@@ -656,7 +761,41 @@ def index():
                 <strong>Live Demo Active</strong><br>
                 This dashboard demonstrates real-time infrastructure project monitoring with AI-powered analytics and geo-visualization.
             </div>
-            
+
+            <!-- How PAIMANA Works Section -->
+            <div class="workflow-section">
+                <h2 class="workflow-title">How PAIMANA Works</h2>
+                <div class="workflow-steps">
+                    <div class="workflow-step">
+                        <div class="workflow-step-number">01</div>
+                        <div class="workflow-step-title">DATA COLLECTION</div>
+                        <div class="workflow-step-desc">Project data
+Cost • Progress • Delay • Location</div>
+                    </div>
+                    <div class="workflow-arrow">→</div>
+                    <div class="workflow-step">
+                        <div class="workflow-step-number">02</div>
+                        <div class="workflow-step-title">AI ANALYSIS</div>
+                        <div class="workflow-step-desc">Analyze project performance,
+patterns and anomalies</div>
+                    </div>
+                    <div class="workflow-arrow">→</div>
+                    <div class="workflow-step">
+                        <div class="workflow-step-number">03</div>
+                        <div class="workflow-step-title">ML PREDICTION</div>
+                        <div class="workflow-step-desc">Predict potential delay
+and project risk</div>
+                    </div>
+                    <div class="workflow-arrow">→</div>
+                    <div class="workflow-step">
+                        <div class="workflow-step-number">04</div>
+                        <div class="workflow-step-title">ACTIONABLE INSIGHTS</div>
+                        <div class="workflow-step-desc">Help decision-makers
+take better actions</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="filter-bar">
                 <input type="text" id="searchInput" placeholder="Search projects...">
                 <select id="districtFilter">
