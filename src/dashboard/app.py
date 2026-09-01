@@ -124,7 +124,6 @@ def index():
         <title>PAIMANA Intelligence Platform</title>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
         <script src="https://unpkg.com/lucide@latest"></script>
-        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
         <style>
             * {
                 margin: 0;
@@ -1183,10 +1182,22 @@ def index():
             });  
                         // ============================================================
 // PAIMANA DATASET-AWARE AI ASSISTANT (Connected to /api/chat)
+// Fully Lazy-Loaded & Independent of Dashboard Load
 // ============================================================
 
 let chatHistory = [];
 let isChatProcessing = false;
+
+function loadMarkedLibrary() {
+    if (typeof marked !== 'undefined') return Promise.resolve();
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+        script.onload = () => resolve();
+        script.onerror = () => resolve(); // fallback gracefully to simpleMarkdownParse if network blocks CDN
+        document.head.appendChild(script);
+    });
+}
 
 async function sendMessage() {
     if (isChatProcessing) return;
@@ -1245,7 +1256,14 @@ async function sendMessage() {
     input.value = "";
     messages.scrollTop = messages.scrollHeight;
 
+    // Set 15-second timeout so chatbot never freezes dashboard UI
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
+        // Attempt lazy loading of marked.js in background if not loaded
+        loadMarkedLibrary().catch(() => {});
+
         const response = await fetch("/api/chat", {
             method: "POST",
             headers: {
@@ -1254,8 +1272,11 @@ async function sendMessage() {
             body: JSON.stringify({
                 message: question,
                 history: chatHistory
-            })
+            }),
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         const loadingElem = document.getElementById(loadingId);
         if (loadingElem) loadingElem.remove();
@@ -1300,6 +1321,10 @@ async function sendMessage() {
         const loadingElem = document.getElementById(loadingId);
         if (loadingElem) loadingElem.remove();
 
+        const errorMsg = error.name === 'AbortError' 
+            ? '⚠️ The request timed out (15s). Please try asking your question again.'
+            : '⚠️ Sorry, I encountered an error connecting to the PAIMANA backend. Please try again.';
+
         messages.innerHTML += `
             <div style="
                 background:#ffebee;
@@ -1311,7 +1336,7 @@ async function sendMessage() {
                 border:1px solid #ffcdd2;
             ">
                 <strong>🤖 PAIMANA Assistant</strong><br>
-                ⚠️ Sorry, I encountered an error connecting to the PAIMANA backend. Please try again.
+                ${errorMsg}
             </div>
         `;
     } finally {
