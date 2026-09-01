@@ -716,7 +716,13 @@ def index():
                 <h2>Similar Projects Analysis</h2>
                 <p style="color: #7f8c8d; margin-bottom: 20px;">Compare projects with similar characteristics to identify patterns and insights.</p>
                 <div id="similar-projects">
-                    <div class="loading">Similar projects feature coming soon</div>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="similarProjectInput" placeholder="Enter Project Code (e.g. PRJ-001)" style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px;">
+                        <button onclick="searchSimilarProjects()" style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer;">Find Similar</button>
+                    </div>
+                    <div id="similar-projects-results">
+                        <div class="loading" style="background: transparent; border: none; padding: 0; color: #6c757d;">Enter a project code to find similar projects.</div>
+                    </div>
                 </div>
             </div>
             <div class="card" id="section-chatbot">
@@ -1172,6 +1178,57 @@ def index():
                 });
                 table += '</table>';
                 document.getElementById('ml-predictions').innerHTML = table;
+            }
+            
+            async function searchSimilarProjects() {
+                const projectId = document.getElementById('similarProjectInput').value.trim();
+                const resultsContainer = document.getElementById('similar-projects-results');
+                
+                if (!projectId) {
+                    resultsContainer.innerHTML = '<p style="color: #e74c3c; padding: 20px;">Please enter a Project Code.</p>';
+                    return;
+                }
+                
+                resultsContainer.innerHTML = '<div class="loading" style="background: transparent; border: none;">Finding similar projects...</div>';
+                
+                try {
+                    const response = await fetch(`/api/similar-projects/${encodeURIComponent(projectId)}`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        resultsContainer.innerHTML = `<p style="color: #e74c3c; padding: 20px;">${data.error || 'Error finding similar projects.'}</p>`;
+                        return;
+                    }
+                    
+                    if (!data.data || data.data.length === 0) {
+                        resultsContainer.innerHTML = '<p style="color: #6c757d; padding: 20px;">No similar projects found or invalid Project Code.</p>';
+                        return;
+                    }
+                    
+                    let table = '<table><tr><th>Project ID</th><th>Name</th><th>Similarity</th><th>Sector</th><th>Cost</th><th>Progress</th></tr>';
+                    data.data.forEach(p => {
+                        const pid = escapeHTML(String(p.project_id || 'N/A'));
+                        const pname = escapeHTML(String(p.project_name || 'Unknown'));
+                        const sim = (typeof p.similarity_score === 'number' ? p.similarity_score * 100 : 0).toFixed(1);
+                        const sector = escapeHTML(String(p.sector || 'N/A'));
+                        const cost = typeof p.cost === 'number' ? p.cost : 0;
+                        const prog = typeof p.progress === 'number' ? p.progress : 0;
+                        
+                        table += `<tr>
+                            <td><strong>${pid}</strong></td>
+                            <td>${pname}</td>
+                            <td><span class="status-badge" style="background:#3498db;color:white;">${sim}%</span></td>
+                            <td>${sector}</td>
+                            <td>₹${cost.toFixed(2)} Cr</td>
+                            <td>${prog.toFixed(1)}%</td>
+                        </tr>`;
+                    });
+                    table += '</table>';
+                    resultsContainer.innerHTML = table;
+                } catch (error) {
+                    console.error('Error fetching similar projects:', error);
+                    resultsContainer.innerHTML = '<p style="color: #e74c3c; padding: 20px;">Error communicating with server.</p>';
+                }
             }
             
             function applyFilters() {
@@ -1700,6 +1757,68 @@ def api_projects_excel():
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': 'attachment; filename=paimana_projects.xlsx'
     }
+
+
+@app.route('/api/similar-projects/<project_id>')
+def api_similar_projects(project_id):
+    """Get top 5 similar projects using real data heuristics"""
+    try:
+        data = load_or_generate_data()
+        df = data['projects']
+        
+        if project_id not in df['Project Code'].astype(str).values:
+            return jsonify({"success": False, "error": f"Project Code '{project_id}' not found."}), 404
+            
+        target = df[df['Project Code'].astype(str) == project_id].iloc[0]
+        
+        scores = []
+        for _, row in df.iterrows():
+            curr_id = str(row.get('Project Code', ''))
+            if curr_id == project_id:
+                continue
+                
+            score = 0
+            
+            # Sector match (30%)
+            if str(row.get('Sector', '')) == str(target.get('Sector', '')):
+                score += 0.3
+                
+            # State match (20%)
+            if str(row.get('State', '')) == str(target.get('State', '')):
+                score += 0.2
+                
+            # Cost similarity (25%)
+            cost1 = float(target.get('Original Cost (Rs. Crore)', 0) or 0)
+            cost2 = float(row.get('Original Cost (Rs. Crore)', 0) or 0)
+            if pd.isna(cost1): cost1 = 0
+            if pd.isna(cost2): cost2 = 0
+            max_cost = max(cost1, cost2, 1)
+            score += 0.25 * (1 - abs(cost1 - cost2) / max_cost)
+            
+            # Progress similarity (25%)
+            prog1 = float(target.get('Physical Progress (%)', 0) or 0)
+            prog2 = float(row.get('Physical Progress (%)', 0) or 0)
+            if pd.isna(prog1): prog1 = 0
+            if pd.isna(prog2): prog2 = 0
+            score += 0.25 * (1 - abs(prog1 - prog2) / 100)
+            
+            scores.append({
+                'project_id': curr_id,
+                'project_name': str(row.get('Project Name', 'Unknown')),
+                'similarity_score': float(score),
+                'sector': str(row.get('Sector', 'N/A')),
+                'cost': float(cost2),
+                'progress': float(prog2)
+            })
+            
+        scores.sort(key=lambda x: x['similarity_score'], reverse=True)
+        top_5 = scores[:5]
+        
+        return jsonify({"success": True, "data": top_5}), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        import traceback
+        print(f"[API] similar-projects ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": f"Similar projects error: {e}"}), 500
 
 
 @app.route('/api/map-data')
