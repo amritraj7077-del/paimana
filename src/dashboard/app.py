@@ -17,10 +17,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.analytics.delay_detector import DelayAnalyzer
 from src.audit.quality_checker import DataQualityAuditor
+from src.analytics.chatbot_engine import PAIMANAChatbotEngine
 import plotly.graph_objects as go
 import plotly.utils
 
 app = Flask(__name__)
+chatbot_engine = PAIMANAChatbotEngine()
 
 # Configure CORS - allow all origins for development, or specific frontend domain
 # For Railway deployment with separate frontend, set FRONTEND_URL environment variable
@@ -122,6 +124,7 @@ def index():
         <title>PAIMANA Intelligence Platform</title>
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
         <script src="https://unpkg.com/lucide@latest"></script>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
         <style>
             * {
                 margin: 0;
@@ -719,6 +722,7 @@ def index():
         >
 
         <button
+            id="chat-send-btn"
             onclick="sendMessage()"
             style="
                 padding:13px 22px;
@@ -1177,61 +1181,150 @@ def index():
                     applyFilters();
                 }
             });  
-            // ============================================================
-// PAIMANA OFFLINE INTELLIGENCE ASSISTANT
-// No external API / No API key
+                        // ============================================================
+// PAIMANA DATASET-AWARE AI ASSISTANT (Connected to /api/chat)
 // ============================================================
 
-function sendMessage() {
+let chatHistory = [];
+let isChatProcessing = false;
+
+async function sendMessage() {
+    if (isChatProcessing) return;
 
     const input = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("chat-send-btn");
     const messages = document.getElementById("chat-messages");
 
     const question = input.value.trim();
-
     if (!question) return;
 
-    // Show user message
+    // Lock UI during processing
+    isChatProcessing = true;
+    input.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    // Display user message safely
+    const escapedQuestion = escapeHTML(question);
     messages.innerHTML += `
         <div style="
             background:#1B6B3A;
             color:white;
-            padding:12px;
-            border-radius:10px;
-            margin-bottom:10px;
+            padding:12px 16px;
+            border-radius:12px;
+            margin-bottom:12px;
             margin-left:20%;
+            word-wrap:break-word;
+            box-shadow:0 1px 3px rgba(0,0,0,0.1);
         ">
             <strong>You</strong><br>
-            ${escapeHTML(question)}
+            ${escapedQuestion}
+        </div>
+    `;
+
+    chatHistory.push({ role: "user", content: question });
+
+    // Show loading indicator
+    const loadingId = "chat-loading-" + Date.now();
+    messages.innerHTML += `
+        <div id="${loadingId}" style="
+            background:#f0f4f1;
+            color:#2e7d32;
+            padding:12px 16px;
+            border-radius:12px;
+            margin-bottom:12px;
+            margin-right:20%;
+            display:flex;
+            align-items:center;
+            gap:8px;
+            font-style:italic;
+        ">
+            <span>🤖 PAIMANA Assistant is thinking...</span>
         </div>
     `;
 
     input.value = "";
-
-    // Generate local answer
-    const answer = getPAIMANAAnswer(question);
-
-    // Show assistant answer
-    messages.innerHTML += `
-        <div style="
-            background:#e8f5e9;
-            padding:12px;
-            border-radius:10px;
-            margin-bottom:10px;
-            margin-right:20%;
-            white-space:pre-line;
-        ">
-            <strong>🤖 PAIMANA Assistant</strong><br>
-            ${answer}
-        </div>
-    `;
-
     messages.scrollTop = messages.scrollHeight;
+
+    try {
+        const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                message: question,
+                history: chatHistory
+            })
+        });
+
+        const loadingElem = document.getElementById(loadingId);
+        if (loadingElem) loadingElem.remove();
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const answer = data.answer || "I couldn't find that information in the PAIMANA dataset.";
+
+        chatHistory.push({ role: "assistant", content: answer });
+
+        let formattedAnswer;
+        if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+            formattedAnswer = marked.parse(answer);
+        } else {
+            formattedAnswer = simpleMarkdownParse(answer);
+        }
+
+        messages.innerHTML += `
+            <div style="
+                background:#e8f5e9;
+                color:#1b5e20;
+                padding:14px 18px;
+                border-radius:12px;
+                margin-bottom:12px;
+                margin-right:15%;
+                word-wrap:break-word;
+                border:1px solid #c8e6c9;
+                box-shadow:0 1px 3px rgba(0,0,0,0.05);
+            ">
+                <strong style="color:#1B6B3A;">🤖 PAIMANA Assistant</strong><br>
+                <div class="chat-response-content" style="margin-top:6px; line-height:1.5;">
+                    ${formattedAnswer}
+                </div>
+            </div>
+        `;
+
+    } catch (error) {
+        console.error("Chat error:", error);
+        const loadingElem = document.getElementById(loadingId);
+        if (loadingElem) loadingElem.remove();
+
+        messages.innerHTML += `
+            <div style="
+                background:#ffebee;
+                color:#c62828;
+                padding:12px 16px;
+                border-radius:12px;
+                margin-bottom:12px;
+                margin-right:20%;
+                border:1px solid #ffcdd2;
+            ">
+                <strong>🤖 PAIMANA Assistant</strong><br>
+                ⚠️ Sorry, I encountered an error connecting to the PAIMANA backend. Please try again.
+            </div>
+        `;
+    } finally {
+        isChatProcessing = false;
+        input.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+        input.focus();
+        messages.scrollTop = messages.scrollHeight;
+    }
 }
 
-
 function escapeHTML(text) {
-
+    if (!text) return "";
     return text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -1240,179 +1333,58 @@ function escapeHTML(text) {
         .replace(/'/g, "&#039;");
 }
 
-
-function getPAIMANAAnswer(question) {
-
-    const q = question.toLowerCase();
-
-    // Greeting
-    if (
-        q.includes("hello") ||
-        q.includes("hi") ||
-        q.includes("hey") ||
-        q.includes("namaste")
-    ) {
-        return "Hello! 👋 I am the PAIMANA Intelligence Assistant. How can I help you?";
-    }
-
-
-    // What is PAIMANA
-    if (
-        q.includes("what is paimana") ||
-        q.includes("about paimana") ||
-        q.includes("paimana platform")
-    ) {
-        return "PAIMANA is an infrastructure intelligence platform that combines historical project data, analytics, GIS and machine learning to predict potential cost overruns, delays and project risks.";
-    }
-
-
-    // Problem
-    if (
-        q.includes("problem") ||
-        q.includes("why paimana") ||
-        q.includes("why is paimana needed")
-    ) {
-        return "Infrastructure projects commonly face cost overruns, delays, unrealistic budgets and location-specific risks. PAIMANA aims to identify these risks earlier using historical data and predictive analytics.";
-    }
-
-
-    // Methodology
-    if (
-        q.includes("methodology") ||
-        q.includes("how does it work") ||
-        q.includes("how it works") ||
-        q.includes("workflow")
-    ) {
-        return "PAIMANA follows this workflow:\\n\\n1. Historical project data\\n2. Data cleaning and quality audit\\n3. GIS and location intelligence\\n4. Similar project analysis\\n5. Machine learning prediction\\n6. Cost, delay and risk assessment\\n7. Actionable insights";
-    }
-
-
-    // Delay
-    if (
-        q.includes("delay") ||
-        q.includes("delayed") ||
-        q.includes("late project")
-    ) {
-        return "PAIMANA analyses physical progress and expenditure patterns to identify projects with potential schedule problems. The trained ML system also estimates potential delay duration.";
-    }
-
-
-    // Cost
-    if (
-        q.includes("cost") ||
-        q.includes("cost overrun") ||
-        q.includes("budget") ||
-        q.includes("expenditure")
-    ) {
-        return "The platform analyses project cost, expenditure and progress to identify potential cost overruns. Its trained ML model predicts cost-overrun behaviour using project characteristics and financial indicators.";
-    }
-
-
-    // Risk
-    if (
-        q.includes("risk") ||
-        q.includes("high risk") ||
-        q.includes("risk prediction")
-    ) {
-        return "PAIMANA's risk model evaluates project characteristics, progress and expenditure-related features and classifies the project's predicted risk level. This helps decision-makers prioritise projects requiring attention.";
-    }
-
-
-    // Machine learning
-    if (
-        q.includes("machine learning") ||
-        q.includes("ml model") ||
-        q === "ml" ||
-        q.includes("algorithm")
-    ) {
-        return "PAIMANA uses trained machine learning models for cost-overrun prediction, delay prediction and project-risk classification. The prediction pipeline also uses categorical encoding and feature scaling.";
-    }
-
-
-    // Features
-    if (
-        q.includes("features") ||
-        q.includes("input") ||
-        q.includes("data used") ||
-        q.includes("what data")
-    ) {
-        return "The predictive models use features such as sector, state, ministry, original project cost, approval year, physical progress, expenditure ratio, cost per progress, project size and budget utilisation.";
-    }
-
-
-    // GIS
-    if (
-        q.includes("gis") ||
-        q.includes("location") ||
-        q.includes("geographical")
-    ) {
-        return "GIS provides location intelligence. PAIMANA can use regional patterns, historical project outcomes and geographical characteristics to understand how location can influence cost, delay and project risk.";
-    }
-
-
-    // Similar projects
-    if (
-        q.includes("similar project") ||
-        q.includes("historical project") ||
-        q.includes("past project")
-    ) {
-        return "PAIMANA can compare a project with historical projects using factors such as category, location, budget, scale and historical performance. These comparisons provide evidence for future project predictions.";
-    }
-
-
-    // Benefits
-    if (
-        q.includes("benefit") ||
-        q.includes("advantage") ||
-        q.includes("useful")
-    ) {
-        return "PAIMANA can help stakeholders identify delayed projects, monitor expenditure, detect potential cost overruns, understand regional patterns and prioritise high-risk infrastructure projects.";
-    }
-
-
-    // Technology
-    if (
-        q.includes("technology") ||
-        q.includes("tech stack") ||
-        q.includes("built with")
-    ) {
-        return "The platform is built using Python, Flask, Pandas, Scikit-learn and interactive data-visualisation technologies, with trained ML models integrated directly into the application.";
-    }
-
-
-    // SIH
-    if (
-        q.includes("sih") ||
-        q.includes("hackathon")
-    ) {
-        return "For the SIH prototype, PAIMANA demonstrates an end-to-end infrastructure intelligence workflow: project monitoring, data analytics, machine learning prediction, risk assessment, GIS visualisation and decision support.";
-    }
-
-
-    // No API question
-    if (
-        q.includes("api") ||
-        q.includes("external")
-    ) {
-        return "The PAIMANA Intelligence Assistant operates locally in the application and does not depend on an external generative-AI API.";
-    }
-
-
-    // Help
-    if (
-        q.includes("help") ||
-        q.includes("what can you do")
-    ) {
-        return "You can ask me:\\n\\n• What is PAIMANA?\\n• How does risk prediction work?\\n• How are delays predicted?\\n• How is cost overrun predicted?\\n• What data is used?\\n• What is the methodology?\\n• How does GIS help?\\n• What ML models are used?";
-    }
-
-
-    return "I can help with PAIMANA, project delays, cost overruns, risk prediction, GIS, machine learning, methodology and project data. Try asking: 'How does risk prediction work?'";
+function simpleMarkdownParse(text) {
+    if (!text) return "";
+    let html = escapeHTML(text);
+    html = html.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 5px 0;color:#1B6B3A;">$1</h4>');
+    html = html.replace(/^## (.*$)/gim, '<h3 style="margin:12px 0 6px 0;color:#1B6B3A;">$1</h3>');
+    html = html.replace(/^# (.*$)/gim, '<h2 style="margin:14px 0 8px 0;color:#1B6B3A;">$1</h2>');
+    html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>');
+    html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>');
+    html = html.replace(/`(.*?)`/g, '<code style="background:#e0e0e0;padding:2px 5px;border-radius:4px;">$1</code>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
 }
         </script>
     </body>
     </html>
     """
+
+
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    """
+    PAIMANA Intelligence Chatbot Endpoint
+    Request: {"message": "...", "history": [...]}
+    Response: {"answer": "...", "sources": [...]}
+    """
+    try:
+        req_data = request.get_json(silent=True) or {}
+        message = req_data.get('message', '').strip()
+        history = req_data.get('history', [])
+
+        if not message:
+            return jsonify({'error': 'Message parameter is required'}), 400
+
+        data = load_or_generate_data()
+        projects_df = data['projects']
+        analytics_report = data['analytics']
+
+        result = chatbot_engine.process_chat(
+            message=message,
+            history=history,
+            df=projects_df,
+            analytics=analytics_report
+        )
+        return jsonify(result), 200
+
+    except Exception as e:
+        import traceback
+        print(f"Error in /api/chat: {e}\n{traceback.format_exc()}")
+        return jsonify({
+            'answer': "I encountered an error processing your request. Please try again.",
+            'sources': []
+        }), 500
 
 
 @app.route('/api/projects')
