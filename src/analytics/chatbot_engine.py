@@ -1,6 +1,7 @@
 """
-PAIMANA Dataset-Aware Chatbot Engine
-Authoritative Data Retrieval, Statistical Calculations, and LLM Integration
+PAIMANA Intelligence Chatbot Engine
+NLP-aware intent classification, fuzzy project matching, conversation context,
+dynamic filtering, ML prediction queries — all grounded in real PAIMANA data.
 """
 
 import os
@@ -9,595 +10,1054 @@ import json
 import urllib.request
 import pandas as pd
 import numpy as np
+from difflib import SequenceMatcher
 
 
 class PAIMANAChatbotEngine:
+    """Dataset-grounded PAIMANA project intelligence assistant."""
+
+    # ── Intent keywords (scored, not exact-match) ──────────────────────────
+    INTENT_KEYWORDS = {
+        "project_lookup": [
+            "tell me about", "details of", "info on", "information about",
+            "show project", "project details", "what is project", "find project",
+            "look up", "lookup", "describe project",
+        ],
+        "project_search": [
+            "projects in", "show me projects", "list projects", "search projects",
+            "which projects", "find projects", "projects from", "projects near",
+        ],
+        "delay_analysis": [
+            "delay", "delayed", "most delayed", "highest delay", "late",
+            "behind schedule", "overdue", "slow", "sluggish", "stalled",
+            "why delayed", "delay reason", "average delay", "total delay",
+        ],
+        "cost_analysis": [
+            "cost", "overrun", "over budget", "budget", "expenditure",
+            "spending", "spent", "sanctioned", "revised cost", "actual cost",
+            "planned cost", "cost overrun", "money", "expensive", "cheapest",
+        ],
+        "progress_analysis": [
+            "progress", "completion", "completed", "ongoing", "running",
+            "under construction", "how far", "percent complete", "almost done",
+            "nearly complete", "below 50", "above 80", "stalled progress",
+        ],
+        "category_analysis": [
+            "category", "sector", "compare categories", "compare sectors",
+            "which category", "which sector", "best category", "worst category",
+            "road", "highway", "railway", "power", "bridge", "water",
+            "telecom", "petroleum", "coal", "health",
+        ],
+        "location_analysis": [
+            "state", "district", "location", "located", "where",
+            "geographic", "geography", "region", "map", "maharashtra",
+            "karnataka", "tamil nadu", "gujarat", "rajasthan", "uttar pradesh",
+            "bihar", "west bengal", "odisha", "jharkhand", "delhi",
+        ],
+        "risk_analysis": [
+            "risk", "risky", "high risk", "critical", "danger",
+            "attention", "priority", "urgent", "problematic", "trouble",
+            "worst", "need attention", "management", "prioritize",
+        ],
+        "ml_prediction": [
+            "predict", "prediction", "predicted", "forecast", "estimated",
+            "ml", "machine learning", "model", "ai prediction",
+            "will it be delayed", "expected delay", "future delay",
+        ],
+        "portfolio_summary": [
+            "summary", "overview", "portfolio", "dashboard", "overall",
+            "total", "how many", "count", "statistics", "stats", "aggregate",
+            "trend", "biggest problem", "top 10", "top 5",
+        ],
+        "comparison": [
+            "compare", "comparison", "versus", "vs", "difference between",
+            "better", "worse",
+        ],
+        "ranking": [
+            "top", "bottom", "highest", "lowest", "biggest", "smallest",
+            "most", "least", "rank", "best", "worst",
+        ],
+        "filtering": [
+            "greater than", "less than", "more than", "above", "below",
+            "between", "filter", "only", "at least",
+        ],
+        "help": [
+            "help", "what can you", "how to use", "capabilities", "features",
+        ],
+        "platform_info": [
+            "what is paimana", "about paimana", "platform", "how does",
+            "algorithm", "methodology",
+        ],
+    }
+
+    # ── State name normalization ───────────────────────────────────────────
+    STATE_ALIASES = {
+        "ap": "Andhra Pradesh", "ts": "Telangana", "tn": "Tamil Nadu",
+        "ka": "Karnataka", "mh": "Maharashtra", "gj": "Gujarat",
+        "rj": "Rajasthan", "up": "Uttar Pradesh", "mp": "Madhya Pradesh",
+        "wb": "West Bengal", "br": "Bihar", "jh": "Jharkhand",
+        "od": "Odisha", "or": "Odisha", "pb": "Punjab", "hr": "Haryana",
+        "dl": "Delhi", "hp": "Himachal Pradesh", "uk": "Uttarakhand",
+        "goa": "Goa", "jk": "Jammu & Kashmir",
+    }
+
     def __init__(self):
-        pass
+        self._last_project_code = None  # For follow-up context
 
-    def process_chat(self, message: str, history: list, df: pd.DataFrame, analytics: dict = None) -> dict:
-        """
-        Process chat message with conversation history context and authoritative dataset analytics.
-        Returns: {"answer": str, "sources": list}
-        """
+    # ═══════════════════════════════════════════════════════════════════════
+    # PUBLIC API
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def process_chat(self, message: str, history: list, df: pd.DataFrame,
+                     analytics: dict = None, predictions_df: pd.DataFrame = None) -> dict:
+        """Main entry point.  Returns {"answer": str, "sources": list}."""
         if not message or not isinstance(message, str):
-            return {
-                "answer": "I couldn't find that information in the PAIMANA dataset.",
-                "sources": []
-            }
+            return self._reply("I couldn't understand the question. Could you rephrase?")
 
-        message_clean = message.strip()
-        history_normalized = self._normalize_history(history)
+        msg = message.strip()
+        hist = self._normalize_history(history)
 
-        # 1. Intent Recognition & Authoritative Data Calculation
-        calculation_result = self._calculate_answer(message_clean, history_normalized, df, analytics)
+        # Resolve follow-up pronouns ("it", "its", "this project", "that one")
+        msg = self._resolve_pronouns(msg, hist)
 
-        # 2. Check if LLM API key is present for natural language response generation
-        llm_answer = self._generate_llm_response(message_clean, history_normalized, calculation_result)
+        # Classify intent
+        intent, score = self._classify_intent(msg)
 
-        if llm_answer:
-            return {
-                "answer": llm_answer,
-                "sources": calculation_result.get("sources", ["PAIMANA Dataset"])
-            }
+        # Build answer
+        try:
+            answer = self._route(intent, msg, df, analytics, predictions_df)
+        except Exception as e:
+            answer = f"I encountered an error while processing your question: {e}"
 
-        # 3. Fallback to authoritative template response if no LLM configured
-        return {
-            "answer": calculation_result.get("text_answer", "I couldn't find that information in the PAIMANA dataset."),
-            "sources": calculation_result.get("sources", ["PAIMANA Dataset"])
+        return self._reply(answer)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # INTENT CLASSIFICATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _classify_intent(self, msg: str) -> tuple:
+        """Score each intent category; return (best_intent, score)."""
+        lower = msg.lower()
+        scores = {}
+        for intent, keywords in self.INTENT_KEYWORDS.items():
+            s = sum(1 for kw in keywords if kw in lower)
+            scores[intent] = s
+
+        # Check for specific project lookup (P123456 or project name)
+        if re.search(r'\bP?\d{5,7}\b', msg, re.IGNORECASE):
+            scores["project_lookup"] = max(scores.get("project_lookup", 0), 5)
+
+        best = max(scores, key=scores.get)
+        return (best, scores[best]) if scores[best] > 0 else ("portfolio_summary", 0)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # ROUTING
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _route(self, intent, msg, df, analytics, predictions_df):
+        lower = msg.lower()
+
+        # Priority: if a project code is explicitly mentioned, do lookup
+        code = self._extract_project_code(msg)
+        if code is not None:
+            return self._project_lookup(code, msg, df, predictions_df)
+
+        # Named project fuzzy match
+        proj_match = self._fuzzy_find_project(msg, df)
+        if proj_match is not None and intent not in ("portfolio_summary", "help", "platform_info"):
+            return self._project_lookup(proj_match, msg, df, predictions_df)
+
+        handlers = {
+            "project_lookup": lambda: self._handle_project_lookup(msg, df, predictions_df),
+            "project_search": lambda: self._handle_project_search(msg, df),
+            "delay_analysis": lambda: self._handle_delay(msg, df, predictions_df),
+            "cost_analysis": lambda: self._handle_cost(msg, df),
+            "progress_analysis": lambda: self._handle_progress(msg, df),
+            "category_analysis": lambda: self._handle_category(msg, df),
+            "location_analysis": lambda: self._handle_location(msg, df),
+            "risk_analysis": lambda: self._handle_risk(msg, df, predictions_df),
+            "ml_prediction": lambda: self._handle_ml(msg, df, predictions_df),
+            "portfolio_summary": lambda: self._handle_summary(msg, df, predictions_df),
+            "comparison": lambda: self._handle_comparison(msg, df, predictions_df),
+            "ranking": lambda: self._handle_ranking(msg, df, predictions_df),
+            "filtering": lambda: self._handle_filtering(msg, df),
+            "help": lambda: self._handle_help(),
+            "platform_info": lambda: self._handle_platform_info(),
         }
+        handler = handlers.get(intent, lambda: self._handle_summary(msg, df, predictions_df))
+        return handler()
 
-    def _normalize_history(self, history: list) -> list:
-        """
-        Normalize various history formats into a standard list of {"role": "user"/"assistant", "content": "..."}
-        """
-        normalized = []
-        if not history or not isinstance(history, list):
-            return normalized
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Project Lookup
+    # ═══════════════════════════════════════════════════════════════════════
 
-        for item in history:
-            if isinstance(item, dict):
-                role = item.get("role") or item.get("sender") or ("user" if "question" in item else "assistant")
-                content = item.get("content") or item.get("text") or item.get("message") or item.get("question") or item.get("answer") or ""
-                if role and content:
-                    normalized.append({"role": role.lower(), "content": str(content)})
-            elif isinstance(item, (list, tuple)) and len(item) == 2:
-                normalized.append({"role": "user", "content": str(item[0])})
-                normalized.append({"role": "assistant", "content": str(item[1])})
+    def _handle_project_lookup(self, msg, df, preds):
+        code = self._extract_project_code(msg)
+        if code is None:
+            code = self._fuzzy_find_project(msg, df)
+        if code is None:
+            return "Could you specify the project ID or name? For example: *'Tell me about project P108841'*."
+        return self._project_lookup(code, msg, df, preds)
 
-        return normalized
+    def _project_lookup(self, code, msg, df, preds):
+        row = self._find_project(code, df)
+        if row is None:
+            return f"I couldn't find project **{code}** in the PAIMANA dataset."
 
-    def _extract_project_ids(self, text: str) -> list:
-        """
-        Extract project IDs/codes from text. Handles P108841, 108841, project 108841, etc.
-        """
-        if not text:
-            return []
-        
-        # Match explicit project patterns
-        matches = re.findall(r'\b(?:[Pp]roject\s*(?:[Ii][Dd])?\s*#?)?\s*([Pp]?\d{3,8})\b', text)
-        extracted = []
-        for m in matches:
-            # Clean leading P/p if present or keep raw
-            clean_code = re.sub(r'^[Pp]', '', m)
-            if clean_code.isdigit() and len(clean_code) >= 3:
-                extracted.append(clean_code)
-        
-        # Deduplicate preserving order
-        res = []
-        for x in extracted:
-            if x not in res:
-                res.append(x)
-        return res
+        self._last_project_code = str(row.get('Project Code', ''))
+        lower = msg.lower()
 
-    def _get_active_project_id(self, message: str, history: list, df: pd.DataFrame) -> str:
-        """
-        Identify target project ID from current message or backward history context.
-        """
-        # 1. Direct mention in current message
-        current_ids = self._extract_project_ids(message)
-        for pid in current_ids:
-            if self._project_exists(df, pid):
-                return pid
+        # Detect sub-topic
+        if any(w in lower for w in ["cost", "budget", "expenditure", "spent", "overrun", "money"]):
+            return self._project_cost_detail(row)
+        if any(w in lower for w in ["delay", "late", "behind", "overdue"]):
+            return self._project_delay_detail(row, preds)
+        if any(w in lower for w in ["predict", "prediction", "ml", "forecast", "will it"]):
+            return self._project_prediction_detail(row, preds)
+        if any(w in lower for w in ["progress", "completion", "complete", "status"]):
+            return self._project_progress_detail(row)
+        if any(w in lower for w in ["location", "where", "located", "state", "district"]):
+            return self._project_location_detail(row)
 
-        # 2. Check for pronouns or context references in message
-        pronouns = ["it", "its", "this project", "that project", "the project", "this", "that"]
-        msg_lower = message.lower()
-        has_context_ref = any(re.search(rf'\b{re.escape(p)}\b', msg_lower) for p in pronouns) or "delay" in msg_lower or "cost" in msg_lower or "progress" in msg_lower or "status" in msg_lower or "risk" in msg_lower
+        # Full detail card
+        return self._project_full_detail(row, preds)
 
-        if has_context_ref and history:
-            # Search backward in history
-            for item in reversed(history):
-                content = item.get("content", "")
-                h_ids = self._extract_project_ids(content)
-                for pid in h_ids:
-                    if self._project_exists(df, pid):
-                        return pid
+    def _project_full_detail(self, r, preds):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        state = r.get('State', 'N/A')
+        sector = r.get('Sector', 'N/A')
+        ministry = r.get('Ministry', 'N/A')
+        progress = r.get('Physical Progress (%)', 0)
+        orig_cost = r.get('Original Cost (Rs. Crore)', 0)
+        rev_cost = r.get('Revised Cost (Rs. Crore)', 0)
+        cum_exp = r.get('Cumulative Expenditure (Rs. Crore)', 0)
+        delay_m = r.get('Actual_Delay_Months', 0)
+        delay_d = round(max(delay_m, 0) * 30)
+        risk = r.get('Risk_Level', 'N/A')
+        overrun = r.get('Cost_Overrun_Ratio', 0) * 100
 
-        return None
+        a = f"### 📌 Project P{code}\n\n"
+        a += f"**{name}**\n\n"
+        a += f"| Field | Value |\n|---|---|\n"
+        a += f"| State | {state} |\n"
+        a += f"| Sector | {sector} |\n"
+        a += f"| Ministry | {ministry} |\n"
+        a += f"| Physical Progress | {progress:.1f}% |\n"
+        a += f"| Original Cost | ₹{orig_cost:,.2f} Cr |\n"
+        if rev_cost and rev_cost != orig_cost:
+            a += f"| Revised Cost | ₹{rev_cost:,.2f} Cr |\n"
+        a += f"| Expenditure | ₹{cum_exp:,.2f} Cr |\n"
+        a += f"| Cost Overrun | {overrun:+.1f}% |\n"
+        a += f"| Actual Delay | {delay_d} days ({delay_m:.1f} months) |\n"
+        a += f"| Risk Level | `{risk}` |\n"
 
-    def _project_exists(self, df: pd.DataFrame, project_id: str) -> bool:
-        """Check if project exists in dataset"""
-        if not project_id:
-            return False
-        
-        # Check Project Code (numeric or string)
-        if 'Project Code' in df.columns:
-            if project_id.isdigit():
-                if not df[df['Project Code'] == int(project_id)].empty:
-                    return True
-            if not df[df['Project Code'].astype(str).str.strip().str.upper() == project_id.upper()].empty:
-                return True
+        # Add ML prediction if available
+        pred_row = self._find_prediction(code, preds)
+        if pred_row is not None:
+            ml_delay = pred_row.get('ML_Predicted_Delay_Days', 0)
+            ml_risk = pred_row.get('ML_Risk_Level', 'N/A')
+            ml_conf = pred_row.get('ML_Risk_Confidence_%', 0)
+            a += f"\n**ML Prediction:** {int(ml_delay)} days predicted delay | Risk: `{ml_risk}` ({ml_conf:.0f}% confidence)\n"
 
-        if 'project_id' in df.columns:
-            if not df[df['project_id'].astype(str).str.strip().str.upper() == project_id.upper()].empty:
-                return True
+        return a
 
-        return False
+    def _project_cost_detail(self, r):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        orig = r.get('Original Cost (Rs. Crore)', 0)
+        rev = r.get('Revised Cost (Rs. Crore)', 0)
+        exp = r.get('Cumulative Expenditure (Rs. Crore)', 0)
+        overrun = r.get('Cost_Overrun_Ratio', 0) * 100
+        util = r.get('Budget_Utilization', 0) * 100 if r.get('Budget_Utilization') else (exp / orig * 100 if orig > 0 else 0)
 
-    def _get_project_row(self, df: pd.DataFrame, project_id: str):
-        """Retrieve single project Pandas Series from dataset"""
-        if not project_id:
-            return None
-        
-        if 'Project Code' in df.columns and project_id.isdigit():
-            match = df[df['Project Code'] == int(project_id)]
-            if not match.empty:
-                return match.iloc[0]
+        a = f"**Cost details for P{code}** ({name}):\n\n"
+        a += f"- **Original Cost:** ₹{orig:,.2f} Crore\n"
+        if rev and rev != orig:
+            a += f"- **Revised Cost:** ₹{rev:,.2f} Crore\n"
+        a += f"- **Cumulative Expenditure:** ₹{exp:,.2f} Crore\n"
+        a += f"- **Cost Overrun:** {overrun:+.1f}%\n"
+        a += f"- **Budget Utilization:** {util:.1f}%\n"
+        return a
 
-        if 'Project Code' in df.columns:
-            match = df[df['Project Code'].astype(str).str.strip().str.upper() == project_id.upper()]
-            if not match.empty:
-                return match.iloc[0]
+    def _project_delay_detail(self, r, preds):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        delay_m = r.get('Actual_Delay_Months', 0)
+        delay_d = round(max(delay_m, 0) * 30)
+        progress = r.get('Physical Progress (%)', 0)
 
-        if 'project_id' in df.columns:
-            match = df[df['project_id'].astype(str).str.strip().str.upper() == project_id.upper()]
-            if not match.empty:
-                return match.iloc[0]
-
-        # Name search fallback
-        name_matches = df[df['Project Name'].astype(str).str.lower().str.contains(project_id.lower(), na=False)]
-        if not name_matches.empty:
-            return name_matches.iloc[0]
-
-        return None
-
-    def _extract_state(self, message: str, df: pd.DataFrame) -> str:
-        """Extract state/district mentioned in message"""
-        if 'State' not in df.columns:
-            return None
-        
-        unique_states = df['State'].dropna().unique()
-        msg_lower = message.lower()
-
-        # Sort by length descending to match longer names first
-        for state in sorted(unique_states, key=lambda s: len(str(s)), reverse=True):
-            state_clean = str(state).replace('\n', ' ').strip()
-            if len(state_clean) > 2 and state_clean.lower() in msg_lower:
-                return state
-
-        return None
-
-    def _extract_sector(self, message: str, df: pd.DataFrame) -> str:
-        """Extract sector/category mentioned in message"""
-        if 'Sector' not in df.columns:
-            return None
-
-        unique_sectors = df['Sector'].dropna().unique()
-        msg_lower = message.lower()
-
-        for sector in sorted(unique_sectors, key=lambda s: len(str(s)), reverse=True):
-            sector_clean = str(sector).strip()
-            if len(sector_clean) > 2 and sector_clean.lower() in msg_lower:
-                return sector
-
-        return None
-
-    def _format_project_detail(self, row) -> str:
-        """Format full details for a project row"""
-        p_code = str(row.get('Project Code', row.get('project_id', 'N/A')))
-        p_name = str(row.get('Project Name', row.get('project_name', 'Unknown')))
-        state = str(row.get('State', row.get('district', 'N/A'))).replace('\n', ' ')
-        sector = str(row.get('Sector', row.get('category', 'N/A')))
-        agency = str(row.get('Agency', 'N/A'))
-        ministry = str(row.get('Ministry', 'N/A'))
-
-        s_cost = row.get('Original Cost (Rs. Crore)', row.get('sanctioned_cost', 0))
-        if s_cost > 1000000: # Convert raw rupees if needed
-            s_cost_crore = s_cost / 10000000
+        a = f"**Delay details for P{code}** ({name}):\n\n"
+        if delay_m <= 0:
+            a += f"This project is **on schedule** (no delay recorded).\n"
         else:
-            s_cost_crore = s_cost
+            a += f"- **Current Delay:** {delay_d} days ({delay_m:.1f} months)\n"
+        a += f"- **Physical Progress:** {progress:.1f}%\n"
 
-        c_exp = row.get('Cumulative Expenditure (Rs. Crore)', row.get('expenditure_to_date', 0))
-        if c_exp > 1000000:
-            c_exp_crore = c_exp / 10000000
-        else:
-            c_exp_crore = c_exp
+        pred_row = self._find_prediction(code, preds)
+        if pred_row is not None:
+            ml_delay = pred_row.get('ML_Predicted_Delay_Days', 0)
+            a += f"- **ML Predicted Delay:** {int(ml_delay)} days\n"
+            a += f"- **ML Risk Level:** `{pred_row.get('ML_Risk_Level', 'N/A')}`\n"
+        return a
 
-        progress = float(row.get('Physical Progress (%)', row.get('physical_progress_percent', 0)))
-        delay_m = float(row.get('Actual_Delay_Months', row.get('Delay_Months', 0)))
-        delay_days = int(delay_m * 30) if delay_m > 0 else int(row.get('delay_days', 0))
+    def _project_prediction_detail(self, r, preds):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        pred_row = self._find_prediction(code, preds)
+        if pred_row is None:
+            return f"No ML prediction data available for project P{code}."
 
-        cost_overrun_pct = float(row.get('Cost_Overrun_Ratio', 0)) * 100
-        risk = str(row.get('Risk_Level', row.get('risk_level', 'LOW')))
+        ml_delay = pred_row.get('ML_Predicted_Delay_Days', 0)
+        ml_cost = pred_row.get('ML_Predicted_Cost_Overrun_%', 0)
+        ml_risk = pred_row.get('ML_Risk_Level', 'N/A')
+        ml_conf = pred_row.get('ML_Risk_Confidence_%', 0)
+        actual_d = round(max(r.get('Actual_Delay_Months', 0), 0) * 30)
 
-        target_doc = str(row.get('Original/Target DoC', 'N/A'))
-        revised_doc = str(row.get('Revised DoC', 'N/A'))
-        actual_doc = str(row.get('Actual Date of Completion', 'N/A'))
+        a = f"**ML Prediction for P{code}** ({name}):\n\n"
+        a += f"| Metric | Value |\n|---|---|\n"
+        a += f"| Current Actual Delay | {actual_d} days |\n"
+        a += f"| **ML Predicted Delay** | **{int(ml_delay)} days** |\n"
+        a += f"| ML Predicted Cost Overrun | {ml_cost:+.1f}% |\n"
+        a += f"| ML Risk Level | `{ml_risk}` |\n"
+        a += f"| Risk Confidence | {ml_conf:.0f}% |\n"
+        return a
 
-        status = "Delayed" if delay_m > 0 else ("Completed" if progress >= 100 else "In Progress")
+    def _project_progress_detail(self, r):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        progress = r.get('Physical Progress (%)', 0)
+        status = "Completed" if progress >= 100 else ("Ongoing" if progress > 0 else "Not Started")
+        a = f"**Progress for P{code}** ({name}):\n\n"
+        a += f"- **Physical Progress:** {progress:.1f}%\n"
+        a += f"- **Status:** {status}\n"
+        return a
 
-        ans = f"### 📌 Project Details: Project {p_code}\n\n"
-        ans += f"**Project Name:** {p_name}\n"
-        ans += f"**State/Location:** {state}\n"
-        ans += f"**Sector/Category:** {sector}\n"
-        ans += f"**Ministry/Agency:** {ministry} ({agency})\n"
-        ans += f"**Status:** {status}\n\n"
-        ans += f"#### 📊 Progress & Financials:\n"
-        ans += f"- **Physical Progress:** {progress:.1f}%\n"
-        ans += f"- **Sanctioned Cost:** ₹{s_cost_crore:,.2f} Crore\n"
-        ans += f"- **Cumulative Expenditure:** ₹{c_exp_crore:,.2f} Crore\n"
-        ans += f"- **Cost Overrun:** {cost_overrun_pct:.1f}%\n\n"
-        ans += f"#### ⏱️ Delay & ML Predictions:\n"
-        ans += f"- **Delay:** {delay_days} days ({delay_m:.1f} months)\n"
-        ans += f"- **Target Completion:** {target_doc}\n"
-        if revised_doc and revised_doc != '-':
-            ans += f"- **Revised Completion:** {revised_doc}\n"
-        if actual_doc and str(actual_doc) != 'nan':
-            ans += f"- **Actual Completion:** {actual_doc}\n"
-        ans += f"- **Predicted Risk Level:** `{risk}`\n"
+    def _project_location_detail(self, r):
+        code = r.get('Project Code', 'N/A')
+        name = r.get('Project Name', 'Unknown')
+        state = r.get('State', 'N/A')
+        a = f"**Location of P{code}** ({name}):\n\n- **State/Region:** {state}\n"
+        return a
 
-        return ans
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Project Search
+    # ═══════════════════════════════════════════════════════════════════════
 
-    def _calculate_answer(self, message: str, history: list, df: pd.DataFrame, analytics: dict = None) -> dict:
-        """
-        Core authoritative query handler using Pandas calculations on dataset.
-        """
-        msg_lower = message.lower()
-        sources = ["PAIMANA Dataset (df_reference.csv)"]
+    def _handle_project_search(self, msg, df):
+        lower = msg.lower()
+        total = len(df)
 
-        # Helper calculations
-        total_projects = len(df)
-        delayed_df = df[df['Actual_Delay_Months'] > 0]
-        cost_overrun_df = df[df['Cost_Overrun_Ratio'] > 0]
-        high_risk_df = df[df['Risk_Level'].isin(['HIGH', 'MEDIUM-HIGH'])]
+        # Search by state
+        state = self._extract_state(msg, df)
+        if state:
+            matched = df[df['State'].str.lower() == state.lower()]
+            if len(matched) == 0:
+                return f"No projects found in **{state}**."
+            delayed = matched[matched['Actual_Delay_Months'] > 0]
+            a = f"There are **{len(matched)}** projects in **{state}** ({len(delayed)} delayed).\n\n"
+            a += self._top_n_table(matched.sort_values('Actual_Delay_Months', ascending=False).head(5))
+            return a
 
-        # --- A. Check for Comparison Query ---
-        comp_ids = self._extract_project_ids(message)
-        if ("compare" in msg_lower or "versus" in msg_lower or " vs " in msg_lower) and len(comp_ids) >= 1:
-            # If user says "compare it with P120250", get active project for first
-            if len(comp_ids) == 1:
-                active_id = self._get_active_project_id(message, history, df)
-                if active_id and active_id != comp_ids[0]:
-                    comp_ids = [active_id, comp_ids[0]]
-            
-            if len(comp_ids) >= 2:
-                p1_row = self._get_project_row(df, comp_ids[0])
-                p2_row = self._get_project_row(df, comp_ids[1])
-                if p1_row is not None and p2_row is not None:
-                    txt = f"### ⚖️ Project Comparison: P{comp_ids[0]} vs P{comp_ids[1]}\n\n"
-                    txt += f"| Metric | Project {comp_ids[0]} | Project {comp_ids[1]} |\n"
-                    txt += f"|---|---|---|\n"
-                    txt += f"| **Project Name** | {p1_row.get('Project Name', 'N/A')[:40]} | {p2_row.get('Project Name', 'N/A')[:40]} |\n"
-                    txt += f"| **State/Location** | {str(p1_row.get('State', 'N/A')).replace(chr(10), ' ')} | {str(p2_row.get('State', 'N/A')).replace(chr(10), ' ')} |\n"
-                    txt += f"| **Sector** | {p1_row.get('Sector', 'N/A')} | {p2_row.get('Sector', 'N/A')} |\n"
-                    txt += f"| **Sanctioned Cost** | ₹{p1_row.get('Original Cost (Rs. Crore)', 0):,.2f} Cr | ₹{p2_row.get('Original Cost (Rs. Crore)', 0):,.2f} Cr |\n"
-                    txt += f"| **Expenditure** | ₹{p1_row.get('Cumulative Expenditure (Rs. Crore)', 0):,.2f} Cr | ₹{p2_row.get('Cumulative Expenditure (Rs. Crore)', 0):,.2f} Cr |\n"
-                    txt += f"| **Physical Progress** | {p1_row.get('Physical Progress (%)', 0):.1f}% | {p2_row.get('Physical Progress (%)', 0):.1f}% |\n"
-                    txt += f"| **Delay (Months)** | {p1_row.get('Actual_Delay_Months', 0):.1f} months | {p2_row.get('Actual_Delay_Months', 0):.1f} months |\n"
-                    txt += f"| **Risk Level** | `{p1_row.get('Risk_Level', 'LOW')}` | `{p2_row.get('Risk_Level', 'LOW')}` |\n"
-                    return {"text_answer": txt, "sources": sources, "intent": "COMPARISON"}
+        # Search by sector
+        sector = self._extract_sector(msg, df)
+        if sector:
+            matched = df[df['Sector'].str.lower() == sector.lower()]
+            if len(matched) == 0:
+                return f"No projects found in sector **{sector}**."
+            a = f"There are **{len(matched)}** projects in the **{sector}** sector.\n\n"
+            a += self._top_n_table(matched.sort_values('Actual_Delay_Months', ascending=False).head(5))
+            return a
 
-        # --- B. Check for Specific Project Query ---
-        target_project_id = self._get_active_project_id(message, history, df)
+        # Check for status-based searches
+        if any(w in lower for w in ["completed", "done", "finished"]):
+            done = df[df['Physical Progress (%)'] >= 100]
+            a = f"**{len(done)}** projects are completed (100% progress) out of {total}.\n\n"
+            a += self._top_n_table(done.head(5))
+            return a
 
-        # Check if the user is asking specifically about a project (and not just general aggregate stats)
-        is_general_stat_query = any(q in msg_lower for q in [
-            "how many projects", "total projects", "which district", "which project has highest",
-            "highest delay", "average physical progress", "average progress", "show cost overruns",
-            "delayed projects", "which projects have cost overruns", "most delayed", "most projects"
-        ])
+        if any(w in lower for w in ["ongoing", "running", "active", "in progress", "under construction"]):
+            ongoing = df[(df['Physical Progress (%)'] > 0) & (df['Physical Progress (%)'] < 100)]
+            a = f"**{len(ongoing)}** projects are currently ongoing.\n\n"
+            a += self._top_n_table(ongoing.sort_values('Physical Progress (%)').head(5))
+            return a
 
-        # If user explicitly provided an unknown project ID e.g. P999999
-        raw_ids_in_msg = self._extract_project_ids(message)
-        if raw_ids_in_msg and not target_project_id and not is_general_stat_query:
-            return {
-                "text_answer": f"I couldn't find project **{raw_ids_in_msg[0]}** in the PAIMANA dataset.",
-                "sources": sources,
-                "intent": "NOT_FOUND"
-            }
+        # Generic search: return count
+        a = f"The PAIMANA dataset contains **{total:,}** projects across {df['State'].nunique()} states and {df['Sector'].nunique()} sectors.\n"
+        a += "You can narrow your search by specifying a state, sector, or status. For example: *'Show projects in Maharashtra'*."
+        return a
 
-        if target_project_id and not is_general_stat_query:
-            row = self._get_project_row(df, target_project_id)
-            if row is not None:
-                p_code = str(row.get('Project Code', target_project_id))
-                delay_m = float(row.get('Actual_Delay_Months', 0))
-                delay_d = int(delay_m * 30)
-                s_cost = row.get('Original Cost (Rs. Crore)', 0)
-                c_exp = row.get('Cumulative Expenditure (Rs. Crore)', 0)
-                prog = float(row.get('Physical Progress (%)', 0))
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Delay Analysis
+    # ═══════════════════════════════════════════════════════════════════════
 
-                # Check sub-queries for project
-                if "delay" in msg_lower or "late" in msg_lower:
-                    ans = f"Project **P{p_code}** ({row.get('Project Name')}) has a delay of **{delay_d} days** ({delay_m:.1f} months)."
-                    if delay_m > 0:
-                        ans += f"\n- Target DoC: {row.get('Original/Target DoC', 'N/A')}\n- ML Predicted Risk: `{row.get('Risk_Level', 'LOW')}`"
-                    else:
-                        ans += " The project is currently on schedule."
-                    return {"text_answer": ans, "sources": sources, "intent": "PROJECT_DELAY"}
+    def _handle_delay(self, msg, df, preds):
+        lower = msg.lower()
+        total = len(df)
+        delayed = df[df['Actual_Delay_Months'] > 0].copy()
+        delay_count = len(delayed)
 
-                if "cost" in msg_lower or "expenditure" in msg_lower or "spent" in msg_lower or "budget" in msg_lower:
-                    overrun = float(row.get('Cost_Overrun_Ratio', 0)) * 100
-                    ans = f"Financial details for **Project P{p_code}** ({row.get('Project Name')}):\n"
-                    ans += f"- **Sanctioned Cost:** ₹{s_cost:,.2f} Crore\n"
-                    ans += f"- **Cumulative Expenditure:** ₹{c_exp:,.2f} Crore\n"
-                    ans += f"- **Cost Overrun:** {overrun:.1f}%\n"
-                    ans += f"- **Budget Utilization / Exp Ratio:** {float(row.get('Expenditure_Ratio', 0))*100:.1f}%"
-                    return {"text_answer": ans, "sources": sources, "intent": "PROJECT_COST"}
+        # "most delayed" / "highest delay"
+        if any(w in lower for w in ["most delayed", "highest delay", "maximum delay", "worst delay"]):
+            top = delayed.sort_values('Actual_Delay_Months', ascending=False).head(5)
+            a = f"**Top 5 Most Delayed Projects:**\n\n"
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                d = round(r['Actual_Delay_Months'] * 30)
+                a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:50]}): **{d} days** delay | Progress: {r['Physical Progress (%)']:.1f}%\n"
+            return a
 
-                if "progress" in msg_lower:
-                    ans = f"Project **P{p_code}** has a physical progress of **{prog:.1f}%**."
-                    return {"text_answer": ans, "sources": sources, "intent": "PROJECT_PROGRESS"}
+        # "average delay"
+        if "average" in lower or "mean" in lower:
+            avg = delayed['Actual_Delay_Months'].mean() * 30
+            median = delayed['Actual_Delay_Months'].median() * 30
+            return f"The **average delay** across {delay_count:,} delayed projects is **{avg:.0f} days** (median: {median:.0f} days)."
 
-                if "risk" in msg_lower or "prediction" in msg_lower:
-                    ans = f"ML Risk Assessment for **Project P{p_code}**:\n"
-                    ans += f"- **Risk Level:** `{row.get('Risk_Level', 'LOW')}`\n"
-                    ans += f"- **Actual/Predicted Delay:** {delay_m:.1f} months ({delay_d} days)\n"
-                    ans += f"- **Cost Overrun Ratio:** {float(row.get('Cost_Overrun_Ratio', 0)):.2f}"
-                    return {"text_answer": ans, "sources": sources, "intent": "PROJECT_RISK"}
+        # "how many delayed"
+        if any(w in lower for w in ["how many", "count", "total"]):
+            pct = delay_count / total * 100
+            return f"**{delay_count:,}** out of {total:,} projects are delayed ({pct:.1f}%)."
 
-                # Full details
-                return {"text_answer": self._format_project_detail(row), "sources": sources, "intent": "PROJECT_DETAIL"}
-            else:
-                return {
-                    "text_answer": "I couldn't find that information in the PAIMANA dataset.",
-                    "sources": sources,
-                    "intent": "NOT_FOUND"
-                }
+        # "delay greater than X"
+        threshold = self._extract_number(msg)
+        if threshold:
+            filtered = delayed[delayed['Actual_Delay_Months'] * 30 > threshold]
+            a = f"**{len(filtered)}** projects have delay greater than {int(threshold)} days.\n\n"
+            if len(filtered) > 0:
+                a += self._top_n_table(filtered.sort_values('Actual_Delay_Months', ascending=False).head(5))
+            return a
 
-        # --- C. Query 1: Total project count ---
-        if any(p in msg_lower for p in ["how many projects are there", "total projects", "count of projects", "how many total projects"]):
-            total_cost = df['Original Cost (Rs. Crore)'].sum()
-            total_exp = df['Cumulative Expenditure (Rs. Crore)'].sum()
-            ans = f"There are **{total_projects:,} projects** in the PAIMANA dataset.\n\n"
-            ans += f"**Key Breakdown:**\n"
-            ans += f"- **Delayed Projects:** {len(delayed_df):,} ({len(delayed_df)/total_projects*100:.1f}%)\n"
-            ans += f"- **On-Time / Ahead Projects:** {total_projects - len(delayed_df):,}\n"
-            ans += f"- **Projects with Cost Overrun:** {len(cost_overrun_df):,} ({len(cost_overrun_df)/total_projects*100:.1f}%)\n"
-            ans += f"- **High/Medium-High Risk Projects:** {len(high_risk_df):,}\n"
-            ans += f"- **Total Sanctioned Cost:** ₹{total_cost:,.2f} Crore\n"
-            ans += f"- **Total Cumulative Expenditure:** ₹{total_exp:,.2f} Crore"
-            return {"text_answer": ans, "sources": sources, "intent": "TOTAL_PROJECTS"}
+        # "which category has the most delays"
+        if any(w in lower for w in ["category", "sector"]):
+            cat_delay = delayed.groupby('Sector').agg(
+                count=('Actual_Delay_Months', 'size'),
+                avg_delay=('Actual_Delay_Months', 'mean'),
+            ).sort_values('count', ascending=False).head(5)
+            a = "**Most Delayed Sectors:**\n\n"
+            for sector, row in cat_delay.iterrows():
+                a += f"- **{sector}**: {int(row['count'])} delayed projects (avg {row['avg_delay']*30:.0f} days)\n"
+            return a
 
-        # --- D. Query 2: Highest Delay ---
-        if "highest delay" in msg_lower or "most delayed project" in msg_lower or "max delay" in msg_lower or "maximum delay" in msg_lower:
-            max_idx = df['Actual_Delay_Months'].idxmax()
-            top_row = df.loc[max_idx]
-            top_code = str(top_row.get('Project Code'))
-            top_name = str(top_row.get('Project Name'))
-            top_delay_m = float(top_row.get('Actual_Delay_Months'))
-            top_delay_d = int(top_delay_m * 30)
-            top_state = str(top_row.get('State')).replace('\n', ' ')
-            top_cost = top_row.get('Original Cost (Rs. Crore)', 0)
+        # Default: delay overview
+        pct = delay_count / total * 100
+        a = f"**{delay_count:,}** projects are delayed ({pct:.1f}% of {total:,}).\n\n"
+        a += "**Top 5 Most Delayed:**\n\n"
+        top = delayed.sort_values('Actual_Delay_Months', ascending=False).head(5)
+        for i, (_, r) in enumerate(top.iterrows(), 1):
+            d = round(r['Actual_Delay_Months'] * 30)
+            a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:50]}): {d} days\n"
+        return a
 
-            ans = f"The project with the **highest delay** in the PAIMANA dataset is **Project P{top_code}**: **{top_name}**.\n\n"
-            ans += f"- **Delay:** {top_delay_d:,} days ({top_delay_m:.1f} months / {top_delay_m/12:.1f} years)\n"
-            ans += f"- **State/Location:** {top_state}\n"
-            ans += f"- **Sector:** {top_row.get('Sector')}\n"
-            ans += f"- **Physical Progress:** {top_row.get('Physical Progress (%)', 0):.1f}%\n"
-            ans += f"- **Sanctioned Cost:** ₹{top_cost:,.2f} Crore\n"
-            ans += f"- **ML Risk Level:** `{top_row.get('Risk_Level', 'HIGH')}`"
-            return {"text_answer": ans, "sources": sources, "intent": "HIGHEST_DELAY"}
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Cost Analysis
+    # ═══════════════════════════════════════════════════════════════════════
 
-        # --- E. Query 3 & Delayed Projects List ---
-        if "how many projects are delayed" in msg_lower or "show me the delayed projects" in msg_lower or "delayed projects" in msg_lower or "list delayed" in msg_lower:
-            del_count = len(delayed_df)
-            pct = (del_count / total_projects) * 100
-            top_5 = delayed_df.sort_values('Actual_Delay_Months', ascending=False).head(5)
+    def _handle_cost(self, msg, df):
+        lower = msg.lower()
+        overrun = df[df['Cost_Overrun_Ratio'] > 0].copy()
 
-            ans = f"There are **{del_count:,} delayed projects** out of {total_projects:,} total projects ({pct:.1f}%).\n\n"
-            ans += f"**Top 5 Most Delayed Projects:**\n"
-            for i, (_, r) in enumerate(top_5.iterrows(), 1):
-                pcode = r.get('Project Code')
-                pname = r.get('Project Name')
-                d_m = float(r.get('Actual_Delay_Months', 0))
-                st = str(r.get('State')).replace('\n', ' ')
-                ans += f"{i}. **P{pcode}** ({pname[:45]}...): **{d_m:.1f} months delay** | State: {st} | Progress: {r.get('Physical Progress (%)', 0):.1f}%\n"
-            return {"text_answer": ans, "sources": sources, "intent": "DELAYED_PROJECTS"}
-
-        # --- F. Query 4: Average Physical Progress ---
-        if "average physical progress" in msg_lower or "average progress" in msg_lower or "mean progress" in msg_lower:
-            avg_prog = df['Physical Progress (%)'].mean()
-            median_prog = df['Physical Progress (%)'].median()
-            min_prog = df['Physical Progress (%)'].min()
-            max_prog = df['Physical Progress (%)'].max()
-
-            ans = f"The **average physical progress** across all {total_projects:,} projects is **{avg_prog:.2f}%** (median: {median_prog:.1f}%).\n\n"
-            ans += f"- **Minimum Progress:** {min_prog:.1f}%\n"
-            ans += f"- **Maximum Progress:** {max_prog:.1f}%\n"
-            ans += f"- **Completed Projects (100%):** {len(df[df['Physical Progress (%)'] >= 100]):,} projects"
-            return {"text_answer": ans, "sources": sources, "intent": "AVERAGE_PROGRESS"}
-
-        # --- G. Query 5: District / State Statistics ---
-        if "which district" in msg_lower or "which state" in msg_lower or "district has the most" in msg_lower or "state has the most" in msg_lower or "district-wise" in msg_lower or "state-wise" in msg_lower:
-            if "delay" in msg_lower:
-                top_states_del = delayed_df['State'].value_counts()
-                top_state = top_states_del.index[0].replace('\n', ' ')
-                top_cnt = top_states_del.iloc[0]
-
-                ans = f"The state/district with the most **delayed projects** is **{top_state}** with **{top_cnt} delayed projects**.\n\n"
-                ans += f"**Top 5 States by Delayed Projects:**\n"
-                for idx, (st, cnt) in enumerate(top_states_del.head(5).items(), 1):
-                    st_clean = str(st).replace('\n', ' ')
-                    ans += f"{idx}. **{st_clean}**: {cnt} delayed projects\n"
-                return {"text_answer": ans, "sources": sources, "intent": "DISTRICT_DELAY_RANKING"}
-
-            else:
-                top_states_all = df['State'].value_counts()
-                top_state = top_states_all.index[0].replace('\n', ' ')
-                top_cnt = top_states_all.iloc[0]
-
-                ans = f"The state/district with the **most projects** is **{top_state}** with **{top_cnt} projects**.\n\n"
-                ans += f"**Top 5 States by Project Count:**\n"
-                for idx, (st, cnt) in enumerate(top_states_all.head(5).items(), 1):
-                    st_clean = str(st).replace('\n', ' ')
-                    ans += f"{idx}. **{st_clean}**: {cnt} projects\n"
-                return {"text_answer": ans, "sources": sources, "intent": "DISTRICT_COUNT_RANKING"}
-
-        # --- Check for specific state mentioned ---
-        state_found = self._extract_state(message, df)
-        if state_found:
-            st_df = df[df['State'] == state_found]
-            st_clean = str(state_found).replace('\n', ' ')
-            st_del = st_df[st_df['Actual_Delay_Months'] > 0]
-            st_overrun = st_df[st_df['Cost_Overrun_Ratio'] > 0]
-            st_cost = st_df['Original Cost (Rs. Crore)'].sum()
-            st_exp = st_df['Cumulative Expenditure (Rs. Crore)'].sum()
-
-            ans = f"### 📍 Project Summary for **{st_clean}**\n\n"
-            ans += f"- **Total Projects:** {len(st_df):,}\n"
-            ans += f"- **Delayed Projects:** {len(st_del):,} ({len(st_del)/len(st_df)*100:.1f}%)\n"
-            ans += f"- **Projects with Cost Overrun:** {len(st_overrun):,}\n"
-            ans += f"- **Average Physical Progress:** {st_df['Physical Progress (%)'].mean():.1f}%\n"
-            ans += f"- **Average Delay:** {st_df['Actual_Delay_Months'].mean():.1f} months\n"
-            ans += f"- **Total Sanctioned Budget:** ₹{st_cost:,.2f} Crore\n"
-            ans += f"- **Total Cumulative Expenditure:** ₹{st_exp:,.2f} Crore"
-            return {"text_answer": ans, "sources": sources, "intent": "STATE_SUMMARY"}
-
-        # --- H. Query 6: Cost Overruns ---
-        if "cost overrun" in msg_lower or "cost overruns" in msg_lower or "projects have cost overruns" in msg_lower or "budget overrun" in msg_lower:
-            co_cnt = len(cost_overrun_df)
-            pct = (co_cnt / total_projects) * 100
-            top_co = cost_overrun_df.sort_values('Cost_Overrun_Ratio', ascending=False).head(5)
-
-            ans = f"There are **{co_cnt:,} projects with cost overruns** ({pct:.1f}% of total projects).\n\n"
-            ans += f"**Top 5 Cost Overrun Projects:**\n"
-            for i, (_, r) in enumerate(top_co.iterrows(), 1):
-                pcode = r.get('Project Code')
-                pname = r.get('Project Name')
-                ratio = float(r.get('Cost_Overrun_Ratio', 0)) * 100
+        if any(w in lower for w in ["biggest", "highest", "maximum", "worst", "most"]):
+            top = overrun.sort_values('Cost_Overrun_Ratio', ascending=False).head(5)
+            a = "**Top 5 Cost Overrun Projects:**\n\n"
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                pct = r['Cost_Overrun_Ratio'] * 100
                 orig = r.get('Original Cost (Rs. Crore)', 0)
                 rev = r.get('Revised Cost (Rs. Crore)', 0)
-                ans += f"{i}. **P{pcode}** ({pname[:40]}...): **+{ratio:.1f}% overrun** | Orig: ₹{orig:,.1f} Cr → Rev: ₹{rev:,.1f} Cr\n"
-            return {"text_answer": ans, "sources": sources, "intent": "COST_OVERRUNS"}
+                a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:50]}): **+{pct:.1f}%** overrun (₹{orig:,.1f} → ₹{rev:,.1f} Cr)\n"
+            return a
 
-        # --- Check for Category / Sector mentioned ---
-        sector_found = self._extract_sector(message, df)
-        if sector_found or "category" in msg_lower or "sector" in msg_lower:
-            if sector_found:
-                sec_df = df[df['Sector'] == sector_found]
-                sec_del = sec_df[sec_df['Actual_Delay_Months'] > 0]
-                ans = f"### 🏗️ Category Summary: **{sector_found}**\n\n"
-                ans += f"- **Total Projects:** {len(sec_df):,}\n"
-                ans += f"- **Delayed Projects:** {len(sec_del):,} ({len(sec_del)/len(sec_df)*100:.1f}%)\n"
-                ans += f"- **Average Physical Progress:** {sec_df['Physical Progress (%)'].mean():.1f}%\n"
-                ans += f"- **Average Delay:** {sec_df['Actual_Delay_Months'].mean():.1f} months\n"
-                ans += f"- **Total Sanctioned Budget:** ₹{sec_df['Original Cost (Rs. Crore)'].sum():,.2f} Crore"
-                return {"text_answer": ans, "sources": sources, "intent": "CATEGORY_SUMMARY"}
+        if any(w in lower for w in ["how many", "count", "total"]):
+            return f"**{len(overrun):,}** projects have cost overruns ({len(overrun)/len(df)*100:.1f}% of total)."
+
+        if any(w in lower for w in ["how much", "spending", "total cost", "total expenditure"]):
+            total_sanc = df['Original Cost (Rs. Crore)'].sum()
+            total_exp = df['Cumulative Expenditure (Rs. Crore)'].sum()
+            return f"**Total sanctioned cost:** ₹{total_sanc:,.2f} Crore\n**Total expenditure:** ₹{total_exp:,.2f} Crore"
+
+        if any(w in lower for w in ["category", "sector"]):
+            cat = overrun.groupby('Sector')['Cost_Overrun_Ratio'].agg(['count', 'mean']).sort_values('count', ascending=False).head(5)
+            a = "**Cost Overruns by Sector:**\n\n"
+            for sector, row in cat.iterrows():
+                a += f"- **{sector}**: {int(row['count'])} projects (avg +{row['mean']*100:.1f}% overrun)\n"
+            return a
+
+        # Default
+        a = f"**{len(overrun):,}** projects have cost overruns.\n\n"
+        top = overrun.sort_values('Cost_Overrun_Ratio', ascending=False).head(5)
+        a += "**Top 5:**\n"
+        for i, (_, r) in enumerate(top.iterrows(), 1):
+            pct = r['Cost_Overrun_Ratio'] * 100
+            a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:45]}): +{pct:.1f}%\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Progress Analysis
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_progress(self, msg, df):
+        lower = msg.lower()
+        avg = df['Physical Progress (%)'].mean()
+        median = df['Physical Progress (%)'].median()
+
+        if any(w in lower for w in ["average", "mean", "overall"]):
+            return f"The **average physical progress** across all {len(df):,} projects is **{avg:.1f}%** (median: {median:.1f}%)."
+
+        if any(w in lower for w in ["below 50", "under 50", "less than 50"]):
+            low = df[df['Physical Progress (%)'] < 50]
+            a = f"**{len(low)}** projects have progress below 50%.\n\n"
+            a += self._top_n_table(low.sort_values('Physical Progress (%)').head(5))
+            return a
+
+        if any(w in lower for w in ["almost", "nearly", "above 80", "above 90", "almost complete"]):
+            near = df[(df['Physical Progress (%)'] >= 80) & (df['Physical Progress (%)'] < 100)]
+            a = f"**{len(near)}** projects are near completion (80–99% progress).\n\n"
+            a += self._top_n_table(near.sort_values('Physical Progress (%)', ascending=False).head(5))
+            return a
+
+        if any(w in lower for w in ["completed", "done", "finished", "100"]):
+            done = df[df['Physical Progress (%)'] >= 100]
+            return f"**{len(done)}** projects are completed (100% progress)."
+
+        if any(w in lower for w in ["slow", "stalled", "sluggish"]):
+            slow = df[(df['Physical Progress (%)'] < 30) & (df['Actual_Delay_Months'] > 12)]
+            a = f"**{len(slow)}** projects have slow progress (<30%) with significant delay (>12 months).\n\n"
+            if len(slow) > 0:
+                a += self._top_n_table(slow.sort_values('Physical Progress (%)').head(5))
+            return a
+
+        # Default
+        completed = len(df[df['Physical Progress (%)'] >= 100])
+        ongoing = len(df[(df['Physical Progress (%)'] > 0) & (df['Physical Progress (%)'] < 100)])
+        not_started = len(df[df['Physical Progress (%)'] == 0])
+        a = f"**Project Progress Summary:**\n\n"
+        a += f"- Average Progress: **{avg:.1f}%**\n"
+        a += f"- Completed (100%): **{completed}** projects\n"
+        a += f"- Ongoing (1-99%): **{ongoing}** projects\n"
+        a += f"- Not Started (0%): **{not_started}** projects\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Category Analysis
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_category(self, msg, df):
+        lower = msg.lower()
+        cats = df.groupby('Sector').agg(
+            count=('Project Code', 'size'),
+            avg_progress=('Physical Progress (%)', 'mean'),
+            avg_delay=('Actual_Delay_Months', 'mean'),
+            delayed_count=('Actual_Delay_Months', lambda x: (x > 0).sum()),
+            avg_overrun=('Cost_Overrun_Ratio', 'mean'),
+        ).sort_values('count', ascending=False)
+
+        if any(w in lower for w in ["best", "top performing", "least delay"]):
+            best = cats.sort_values('avg_delay').head(5)
+            a = "**Best Performing Sectors (by lowest avg delay):**\n\n"
+            for sector, row in best.iterrows():
+                a += f"- **{sector}**: Avg delay {row['avg_delay']*30:.0f} days | {int(row['count'])} projects | {row['avg_progress']:.1f}% avg progress\n"
+            return a
+
+        if any(w in lower for w in ["worst", "most delay", "most problem"]):
+            worst = cats.sort_values('avg_delay', ascending=False).head(5)
+            a = "**Worst Performing Sectors (by highest avg delay):**\n\n"
+            for sector, row in worst.iterrows():
+                a += f"- **{sector}**: Avg delay {row['avg_delay']*30:.0f} days | {int(row['delayed_count'])}/{int(row['count'])} delayed\n"
+            return a
+
+        if "cost" in lower or "overrun" in lower:
+            by_cost = cats.sort_values('avg_overrun', ascending=False).head(5)
+            a = "**Sectors by Cost Overrun:**\n\n"
+            for sector, row in by_cost.iterrows():
+                a += f"- **{sector}**: Avg overrun +{row['avg_overrun']*100:.1f}% | {int(row['count'])} projects\n"
+            return a
+
+        # Default: overview
+        a = f"**Sector Overview** ({len(cats)} sectors):\n\n"
+        for sector, row in cats.head(8).iterrows():
+            a += f"- **{sector}**: {int(row['count'])} projects | {row['avg_progress']:.1f}% progress | {int(row['delayed_count'])} delayed\n"
+        if len(cats) > 8:
+            a += f"\n_...and {len(cats) - 8} more sectors._\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Location Analysis
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_location(self, msg, df):
+        state = self._extract_state(msg, df)
+        if state:
+            matched = df[df['State'].str.lower() == state.lower()]
+            if len(matched) == 0:
+                return f"No projects found in **{state}**."
+            delayed = matched[matched['Actual_Delay_Months'] > 0]
+            avg_p = matched['Physical Progress (%)'].mean()
+            a = f"**{state}** has **{len(matched)}** projects:\n\n"
+            a += f"- Delayed: {len(delayed)} ({len(delayed)/len(matched)*100:.1f}%)\n"
+            a += f"- Avg Progress: {avg_p:.1f}%\n"
+            a += f"- Sectors: {', '.join(matched['Sector'].unique()[:5])}\n\n"
+            a += self._top_n_table(matched.sort_values('Actual_Delay_Months', ascending=False).head(5))
+            return a
+
+        # Geographic distribution overview
+        states = df.groupby('State').agg(
+            count=('Project Code', 'size'),
+            delayed=('Actual_Delay_Months', lambda x: (x > 0).sum()),
+        ).sort_values('count', ascending=False)
+        a = "**Top States by Project Count:**\n\n"
+        for state, row in states.head(10).iterrows():
+            a += f"- **{state}**: {int(row['count'])} projects ({int(row['delayed'])} delayed)\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Risk Analysis
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_risk(self, msg, df, preds):
+        lower = msg.lower()
+
+        if preds is not None and 'ML_Risk_Level' in preds.columns:
+            risk_df = preds
+        else:
+            risk_df = df
+
+        if 'ML_Risk_Level' not in risk_df.columns:
+            risk_df = df
+            if 'Risk_Level' in risk_df.columns:
+                risk_df = risk_df.rename(columns={'Risk_Level': 'ML_Risk_Level'})
+
+        high_risk = risk_df[risk_df['ML_Risk_Level'].isin(['HIGH', 'MEDIUM-HIGH'])]
+
+        if any(w in lower for w in ["top", "worst", "highest", "most"]):
+            n = 10
+        else:
+            n = 5
+
+        if any(w in lower for w in ["need attention", "prioritize", "priority", "urgent", "management"]):
+            # Management view: high risk + high delay + high cost overrun
+            priority = df.copy()
+            priority['priority_score'] = (
+                priority['Actual_Delay_Months'].clip(0) / 120 * 40 +
+                priority['Cost_Overrun_Ratio'].clip(0) * 30 +
+                (100 - priority['Physical Progress (%)']) / 100 * 30
+            )
+            top = priority.sort_values('priority_score', ascending=False).head(n)
+            a = f"**Top {n} Projects Requiring Management Attention:**\n\n"
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                d = round(max(r['Actual_Delay_Months'], 0) * 30)
+                a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:45]}): Delay {d}d | Progress {r['Physical Progress (%)']:.1f}% | Overrun +{r['Cost_Overrun_Ratio']*100:.1f}%\n"
+            return a
+
+        a = f"**{len(high_risk)}** projects are classified as HIGH or MEDIUM-HIGH risk.\n\n"
+        top = high_risk.sort_values('Actual_Delay_Months', ascending=False).head(n)
+        if len(top) > 0:
+            a += f"**Top {min(n, len(top))} High-Risk Projects:**\n\n"
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                d = round(max(r.get('Actual_Delay_Months', 0), 0) * 30)
+                a += f"{i}. **P{r['Project Code']}** ({r.get('Project Name', 'Unknown')[:45]}): Risk `{r.get('ML_Risk_Level', 'N/A')}` | Delay {d}d\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: ML Prediction
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_ml(self, msg, df, preds):
+        if preds is None or 'ML_Predicted_Delay_Days' not in preds.columns:
+            return "ML predictions are not currently available."
+
+        lower = msg.lower()
+
+        # Specific project prediction
+        code = self._extract_project_code(msg)
+        if code:
+            row = self._find_project(code, df)
+            if row is not None:
+                return self._project_prediction_detail(row, preds)
+
+        # "highest predicted delay"
+        if any(w in lower for w in ["highest", "most", "worst", "top"]):
+            top = preds.sort_values('ML_Predicted_Delay_Days', ascending=False).head(10)
+            a = "**Top 10 Projects by ML Predicted Delay:**\n\n"
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                ml_d = int(r['ML_Predicted_Delay_Days'])
+                actual_d = round(max(r.get('Actual_Delay_Months', 0), 0) * 30)
+                a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:45]}): **ML: {ml_d}d** | Actual: {actual_d}d | Risk: `{r.get('ML_Risk_Level', 'N/A')}`\n"
+            return a
+
+        # "compare predicted vs actual"
+        if any(w in lower for w in ["compare", "vs", "versus", "actual"]):
+            sample = preds.sample(min(10, len(preds)), random_state=42)
+            a = "**Predicted vs Actual Delay (sample):**\n\n| Project | Actual Delay | ML Predicted | Risk |\n|---|---|---|---|\n"
+            for _, r in sample.iterrows():
+                actual = round(max(r.get('Actual_Delay_Months', 0), 0) * 30)
+                pred = int(r['ML_Predicted_Delay_Days'])
+                a += f"| P{r['Project Code']} | {actual}d | {pred}d | `{r.get('ML_Risk_Level', 'N/A')}` |\n"
+            return a
+
+        # "high risk" projects from ML
+        if any(w in lower for w in ["high risk", "risky"]):
+            high = preds[preds['ML_Risk_Level'].isin(['HIGH', 'MEDIUM-HIGH'])]
+            a = f"**{len(high)}** projects are predicted as HIGH or MEDIUM-HIGH risk by the ML model.\n\n"
+            top = high.sort_values('ML_Predicted_Delay_Days', ascending=False).head(5)
+            for i, (_, r) in enumerate(top.iterrows(), 1):
+                a += f"{i}. **P{r['Project Code']}** ({r['Project Name'][:45]}): ML Delay {int(r['ML_Predicted_Delay_Days'])}d | Risk `{r['ML_Risk_Level']}`\n"
+            return a
+
+        # Default: ML summary
+        avg = preds['ML_Predicted_Delay_Days'].mean()
+        risk_dist = preds['ML_Risk_Level'].value_counts().to_dict()
+        a = f"**ML Prediction Summary:**\n\n"
+        a += f"- Average predicted delay: **{avg:.0f} days**\n"
+        a += f"- Risk distribution: {', '.join(f'{k}: {v}' for k, v in sorted(risk_dist.items()))}\n\n"
+        a += "Ask about specific projects or try: *'Show highest predicted delays'* or *'Compare predicted vs actual delay'*."
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Portfolio Summary
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_summary(self, msg, df, preds):
+        lower = msg.lower()
+        total = len(df)
+        delayed = len(df[df['Actual_Delay_Months'] > 0])
+        overruns = len(df[df['Cost_Overrun_Ratio'] > 0])
+        avg_progress = df['Physical Progress (%)'].mean()
+        completed = len(df[df['Physical Progress (%)'] >= 100])
+        total_cost = df['Original Cost (Rs. Crore)'].sum()
+        total_exp = df['Cumulative Expenditure (Rs. Crore)'].sum()
+
+        if any(w in lower for w in ["how many", "count", "total projects"]):
+            return f"There are **{total:,}** projects in the PAIMANA dataset across {df['State'].nunique()} states and {df['Sector'].nunique()} sectors."
+
+        if any(w in lower for w in ["biggest problem", "major issue", "key concern"]):
+            a = "**Top Concerns in PAIMANA Portfolio:**\n\n"
+            a += f"1. **{delayed:,}** projects ({delayed/total*100:.1f}%) are delayed\n"
+            a += f"2. **{overruns:,}** projects ({overruns/total*100:.1f}%) have cost overruns\n"
+            slow = len(df[(df['Physical Progress (%)'] < 30) & (df['Actual_Delay_Months'] > 12)])
+            a += f"3. **{slow}** projects have critically slow progress (<30%) with >12-month delay\n"
+            if preds is not None and 'ML_Risk_Level' in preds.columns:
+                high_risk = len(preds[preds['ML_Risk_Level'].isin(['HIGH', 'MEDIUM-HIGH'])])
+                a += f"4. **{high_risk}** projects classified as HIGH/MEDIUM-HIGH risk by ML model\n"
+            return a
+
+        if any(w in lower for w in ["trend", "pattern"]):
+            by_year = df.groupby('Approval_Year').agg(
+                count=('Project Code', 'size'),
+                avg_delay=('Actual_Delay_Months', 'mean'),
+            ).sort_index()
+            a = "**Project Trends by Approval Year:**\n\n"
+            for year, row in by_year.tail(8).iterrows():
+                a += f"- **{int(year)}**: {int(row['count'])} projects, avg delay {row['avg_delay']*30:.0f} days\n"
+            return a
+
+        # Default: portfolio overview
+        a = f"**PAIMANA Portfolio Summary:**\n\n"
+        a += f"- **Total Projects:** {total:,}\n"
+        a += f"- **Delayed:** {delayed:,} ({delayed/total*100:.1f}%)\n"
+        a += f"- **On-Time:** {total - delayed:,}\n"
+        a += f"- **Completed:** {completed:,}\n"
+        a += f"- **Cost Overruns:** {overruns:,} ({overruns/total*100:.1f}%)\n"
+        a += f"- **Avg Progress:** {avg_progress:.1f}%\n"
+        a += f"- **Total Sanctioned Cost:** ₹{total_cost:,.0f} Crore\n"
+        a += f"- **Total Expenditure:** ₹{total_exp:,.0f} Crore\n"
+
+        if preds is not None and 'ML_Risk_Level' in preds.columns:
+            risk_dist = preds['ML_Risk_Level'].value_counts().to_dict()
+            a += f"\n**ML Risk Distribution:** {', '.join(f'{k}: {v}' for k, v in sorted(risk_dist.items()))}\n"
+
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Comparison
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_comparison(self, msg, df, preds):
+        # Try to find two project codes
+        codes = re.findall(r'P?(\d{5,7})', msg, re.IGNORECASE)
+        if len(codes) >= 2:
+            rows = [self._find_project(c, df) for c in codes[:2]]
+            if all(r is not None for r in rows):
+                a = "**Project Comparison:**\n\n"
+                a += "| Metric | P{} | P{} |\n|---|---|---|\n".format(codes[0], codes[1])
+                for field, label in [('Physical Progress (%)', 'Progress'), ('Actual_Delay_Months', 'Delay (months)'),
+                                      ('Cost_Overrun_Ratio', 'Cost Overrun'), ('Risk_Level', 'Risk')]:
+                    v1 = rows[0].get(field, 'N/A')
+                    v2 = rows[1].get(field, 'N/A')
+                    if isinstance(v1, float):
+                        v1 = f"{v1:.1f}"
+                        v2 = f"{v2:.1f}"
+                    a += f"| {label} | {v1} | {v2} |\n"
+                return a
+
+        return self._handle_category(msg, df)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Ranking
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_ranking(self, msg, df, preds):
+        lower = msg.lower()
+        n = 10 if "10" in msg else 5
+
+        if any(w in lower for w in ["delay", "late", "behind"]):
+            return self._handle_delay(msg, df, preds)
+        if any(w in lower for w in ["cost", "overrun", "budget", "expensive"]):
+            return self._handle_cost(msg, df)
+        if any(w in lower for w in ["risk", "risky", "danger"]):
+            return self._handle_risk(msg, df, preds)
+        if any(w in lower for w in ["progress", "slow", "fast"]):
+            return self._handle_progress(msg, df)
+        if any(w in lower for w in ["predict", "ml", "forecast"]):
+            return self._handle_ml(msg, df, preds)
+
+        # Default: by delay
+        return self._handle_delay("top " + str(n) + " most delayed", df, preds)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Filtering
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _handle_filtering(self, msg, df):
+        lower = msg.lower()
+        threshold = self._extract_number(msg)
+        if threshold is None:
+            threshold = 100
+
+        if any(w in lower for w in ["delay", "days"]):
+            if any(w in lower for w in ["greater", "more", "above", "over"]):
+                filtered = df[df['Actual_Delay_Months'] * 30 > threshold]
             else:
-                sec_counts = df['Sector'].value_counts()
-                ans = f"PAIMANA tracks projects across **{len(sec_counts)} sectors/categories**.\n\n"
-                ans += f"**Top Sectors by Project Count:**\n"
-                for idx, (sec, cnt) in enumerate(sec_counts.head(5).items(), 1):
-                    ans += f"{idx}. **{sec}**: {cnt} projects\n"
-                return {"text_answer": ans, "sources": sources, "intent": "CATEGORY_BREAKDOWN"}
+                filtered = df[df['Actual_Delay_Months'] * 30 < threshold]
+            a = f"**{len(filtered)}** projects match the delay filter.\n\n"
+            a += self._top_n_table(filtered.sort_values('Actual_Delay_Months', ascending=False).head(5))
+            return a
 
-        # --- I. Critical / High-Risk Projects ---
-        if "high risk" in msg_lower or "critical" in msg_lower or "risk level" in msg_lower:
-            hr_cnt = len(high_risk_df)
-            top_hr = high_risk_df.sort_values('Actual_Delay_Months', ascending=False).head(5)
+        if any(w in lower for w in ["progress", "percent", "%"]):
+            if any(w in lower for w in ["below", "less", "under"]):
+                filtered = df[df['Physical Progress (%)'] < threshold]
+            else:
+                filtered = df[df['Physical Progress (%)'] > threshold]
+            a = f"**{len(filtered)}** projects match the progress filter.\n\n"
+            a += self._top_n_table(filtered.sort_values('Physical Progress (%)').head(5))
+            return a
 
-            ans = f"PAIMANA's ML risk model has identified **{hr_cnt:,} High / Medium-High Risk projects**.\n\n"
-            ans += f"**Top Critical High-Risk Projects:**\n"
-            for i, (_, r) in enumerate(top_hr.iterrows(), 1):
-                pcode = r.get('Project Code')
-                pname = r.get('Project Name')
-                rk = r.get('Risk_Level')
-                dm = float(r.get('Actual_Delay_Months', 0))
-                ans += f"{i}. **P{pcode}** ({pname[:40]}...): Risk `{rk}` | Delay: {dm:.1f} months | Progress: {r.get('Physical Progress (%)', 0):.1f}%\n"
-            return {"text_answer": ans, "sources": sources, "intent": "HIGH_RISK"}
+        return f"Please specify what to filter. Example: *'Show projects with delay greater than 200 days'*."
 
-        # --- J. General Platform Questions ---
-        if "what is paimana" in msg_lower or "about paimana" in msg_lower:
-            ans = "PAIMANA is an infrastructure intelligence platform that combines project dataset analytics, GIS mapping, and trained Machine Learning models to predict cost overruns, delays, and risk levels across national infrastructure projects."
-            return {"text_answer": ans, "sources": sources, "intent": "PLATFORM_INFO"}
+    # ═══════════════════════════════════════════════════════════════════════
+    # HANDLER: Help & Platform Info
+    # ═══════════════════════════════════════════════════════════════════════
 
-        if "how does risk prediction work" in msg_lower or "machine learning" in msg_lower or "ml model" in msg_lower or "algorithm" in msg_lower:
-            ans = "PAIMANA utilizes Machine Learning models trained on historical project indicators (sector, budget, physical progress, expenditure ratio, cost-per-progress) to classify project risk into LOW, MEDIUM, MEDIUM-HIGH, and HIGH tiers, while predicting potential delay months and cost overrun ratios."
-            return {"text_answer": ans, "sources": sources, "intent": "PLATFORM_INFO"}
+    def _handle_help(self):
+        return """I'm the **PAIMANA Intelligence Assistant**. I can answer questions about the project portfolio using real data. Here are some examples:
 
-        if "help" in msg_lower or "what can you ask" in msg_lower or "what can you do" in msg_lower:
-            ans = "I am the PAIMANA Dataset-Aware AI Assistant. You can ask me dynamic questions such as:\n"
-            ans += "- *'How many projects are there?'*\n"
-            ans += "- *'Which project has the highest delay?'*\n"
-            ans += "- *'Show me the delayed projects.'*\n"
-            ans += "- *'What is the average physical progress?'*\n"
-            ans += "- *'Which district has the most delayed projects?'*\n"
-            ans += "- *'Which projects have cost overruns?'*\n"
-            ans += "- *'Tell me about project P108841.'*\n"
-            ans += "- Follow-ups: *'What is its delay?'*, *'What about its cost?'*\n"
-            ans += "- *'Compare P108841 and P120250.'*"
-            return {"text_answer": ans, "sources": sources, "intent": "HELP"}
+**📊 Project Info:** *"Tell me about project P108841"* or *"Show projects in Maharashtra"*
+**⏱ Delays:** *"Which project has the highest delay?"* or *"How many projects are delayed?"*
+**💰 Cost:** *"Show cost overruns"* or *"Which project is most over budget?"*
+**📈 Progress:** *"What is the average progress?"* or *"Show projects below 50%"*
+**🏷 Categories:** *"Compare sectors"* or *"Which sector has the most delays?"*
+**📍 Location:** *"Projects in Gujarat"* or *"Geographic distribution"*
+**🤖 ML Predictions:** *"Show predicted delays"* or *"Which projects are high risk?"*
+**📋 Summary:** *"Portfolio summary"* or *"What are the biggest problems?"*
 
-        # --- K. Default Dataset Overview Fallback ---
-        ans = f"The PAIMANA dataset contains **{total_projects:,} active project records** across {df['State'].nunique()} states/districts and {df['Sector'].nunique()} sectors.\n\n"
-        ans += f"- **Delayed Projects:** {len(delayed_df):,} ({len(delayed_df)/total_projects*100:.1f}%)\n"
-        ans += f"- **Average Progress:** {df['Physical Progress (%)'].mean():.1f}%\n"
-        ans += f"- **Cost Overrun Projects:** {len(cost_overrun_df):,}\n\n"
-        ans += "You can ask me about specific project IDs (e.g. *'Tell me about project 108841'*), rankings (e.g. *'Which project has highest delay?'*), or statistics."
-        return {"text_answer": ans, "sources": sources, "intent": "DATASET_OVERVIEW"}
+You can also ask follow-up questions — I'll remember the context!"""
 
-    def _generate_llm_response(self, message: str, history: list, calc_result: dict) -> str:
-        """
-        Synthesize natural language response using an external LLM API if key is set in environment.
-        Supports OPENAI_API_KEY, GEMINI_API_KEY, or generic LLM_API_KEY.
-        """
-        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY") or os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
+    def _handle_platform_info(self):
+        return ("**PAIMANA** (Project Analytics & Infrastructure Management Network Application) "
+                "is an intelligence platform that combines real-time project data with Machine Learning "
+                "to monitor infrastructure project delays, cost overruns, and risk levels. "
+                "The ML pipeline uses trained Gradient Boosting and Random Forest models on 10 features "
+                "(Sector, State, Ministry, Original Cost, Approval Year, Physical Progress, Expenditure Ratio, "
+                "Cost Per Progress, Large Project flag, Budget Utilization) to predict delay, cost overrun, and risk tier.")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # UTILITIES
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _reply(self, answer, sources=None):
+        return {"answer": answer, "sources": sources or ["PAIMANA Dataset"]}
+
+    def _normalize_history(self, history):
+        if not history or not isinstance(history, list):
+            return []
+        result = []
+        for item in history:
+            if isinstance(item, dict):
+                role = item.get("role", "user")
+                content = item.get("content", "")
+                result.append({"role": role, "content": content})
+        return result
+
+    def _resolve_pronouns(self, msg, history):
+        """Replace pronouns like 'it', 'its', 'this project' with last project code."""
+        lower = msg.lower()
+        has_pronoun = any(p in lower for p in ["its ", "it's ", " it ", "this project", "that project", "that one", "the same"])
+        if not has_pronoun:
+            return msg
+
+        # Try to find project code from history
+        last_code = self._last_project_code
+        if not last_code:
+            for item in reversed(history):
+                code_match = re.search(r'P?(\d{5,7})', item.get("content", ""))
+                if code_match:
+                    last_code = code_match.group(1)
+                    break
+
+        if last_code:
+            self._last_project_code = last_code
+            return f"{msg} [context: project P{last_code}]"
+        return msg
+
+    def _extract_project_code(self, msg):
+        """Extract a 5-7 digit project code from message."""
+        # Check for [context: project P123456]
+        ctx = re.search(r'\[context: project P?(\d{5,7})\]', msg)
+        if ctx:
+            return ctx.group(1)
+        m = re.search(r'P?(\d{5,7})', msg)
+        return m.group(1) if m else None
+
+    def _find_project(self, code, df):
+        """Find project by code (numeric)."""
+        code_str = str(code).strip().lstrip('Pp')
+        try:
+            code_num = int(code_str)
+        except ValueError:
+            return None
+        match = df[df['Project Code'] == code_num]
+        if len(match) == 0:
+            match = df[df['Project Code'].astype(str) == code_str]
+        if len(match) > 0:
+            return match.iloc[0]
+        return None
+
+    def _find_prediction(self, code, preds):
+        """Find ML prediction row for a project."""
+        if preds is None:
+            return None
+        code_str = str(code).strip().lstrip('Pp')
+        try:
+            code_num = int(code_str)
+        except ValueError:
+            return None
+        match = preds[preds['Project Code'] == code_num]
+        if len(match) == 0:
+            match = preds[preds['Project Code'].astype(str) == code_str]
+        return match.iloc[0] if len(match) > 0 else None
+
+    def _fuzzy_find_project(self, msg, df):
+        """Try to match a project name from the message using fuzzy matching."""
+        lower = msg.lower()
+        # Remove common words
+        for stop in ["tell me about", "show me", "details of", "info on", "what is",
+                      "what about", "how about", "find", "search", "project"]:
+            lower = lower.replace(stop, "")
+        lower = lower.strip()
+        if len(lower) < 4:
+            return None
+
+        best_score = 0
+        best_code = None
+        for _, row in df.iterrows():
+            name = str(row.get('Project Name', '')).lower()
+            ratio = SequenceMatcher(None, lower, name).ratio()
+            if ratio > best_score and ratio > 0.5:
+                best_score = ratio
+                best_code = str(row.get('Project Code', ''))
+        return best_code
+
+    def _extract_state(self, msg, df):
+        """Extract a state name from message."""
+        lower = msg.lower()
+        # Check aliases
+        for alias, full in self.STATE_ALIASES.items():
+            if alias in lower.split():
+                return full
+        # Check actual state names in dataset
+        for state in df['State'].unique():
+            if state.lower() in lower:
+                return state
+        return None
+
+    def _extract_sector(self, msg, df):
+        """Extract a sector name from message."""
+        lower = msg.lower()
+        for sector in df['Sector'].unique():
+            if sector.lower() in lower:
+                return sector
+        # Check partial matches
+        sector_keywords = {
+            "road": "Roads & Highways", "highway": "Roads & Highways",
+            "railway": "Railways", "rail": "Railways",
+            "power": "Power", "energy": "Power",
+            "water": "Water Resources", "irrigation": "Water Resources",
+            "telecom": "Telecommunication",
+            "petroleum": "Petroleum",
+            "coal": "Coal",
+        }
+        for kw, sector in sector_keywords.items():
+            if kw in lower:
+                # Verify sector exists in data
+                if sector in df['Sector'].values:
+                    return sector
+                # Try partial match
+                for s in df['Sector'].unique():
+                    if kw in s.lower():
+                        return s
+        return None
+
+    def _extract_number(self, msg):
+        """Extract a number from message."""
+        m = re.search(r'(\d+(?:\.\d+)?)', msg)
+        return float(m.group(1)) if m else None
+
+    def _top_n_table(self, subset):
+        """Generate a markdown table for a project subset."""
+        if len(subset) == 0:
+            return "_No projects to display._\n"
+        a = "| Project | Name | State | Delay (days) | Progress |\n|---|---|---|---|---|\n"
+        for _, r in subset.iterrows():
+            d = round(max(r.get('Actual_Delay_Months', 0), 0) * 30)
+            p = r.get('Physical Progress (%)', 0)
+            name = str(r.get('Project Name', 'Unknown'))[:40]
+            a += f"| P{r.get('Project Code', 'N/A')} | {name} | {r.get('State', 'N/A')} | {d} | {p:.1f}% |\n"
+        return a
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LLM Integration (optional, if API key configured)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _generate_llm_response(self, message, history, calc_result):
+        """Optional LLM synthesis layer. Only used if an API key is configured."""
+        api_key = (os.environ.get("OPENAI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+                   or os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY"))
         if not api_key:
-            return None  # No LLM API key configured; fallback to authoritative python answer
+            return None
 
-        prompt = f"""You are the official PAIMANA Intelligence AI Assistant.
+        prompt = f"""You are the PAIMANA Intelligence AI Assistant.
 The user asked: "{message}"
 
-Authoritative facts calculated directly from the PAIMANA project dataset:
-{calc_result.get('text_answer')}
+Authoritative facts from the PAIMANA dataset:
+{calc_result.get('text_answer', calc_result.get('answer', ''))}
 
 INSTRUCTIONS:
-1. Format a clear, polite, and authoritative answer based ONLY on the provided dataset facts above.
-2. DO NOT invent or alter any numerical values, project IDs, delays, costs, or statistics.
-3. Keep the answer concise and easy to read using clean Markdown formatting.
+1. Format a clear answer using ONLY the provided data.
+2. DO NOT invent numbers, names, or statistics.
+3. Use clean Markdown formatting.
 """
-
         base_url = os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1/chat/completions")
         model = os.environ.get("LLM_MODEL", "gpt-4o-mini")
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You are PAIMANA AI Assistant. Always rely strictly on provided authoritative dataset values."},
+                {"role": "system", "content": "You are PAIMANA AI. Use only provided data."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.2
         }
-
         try:
-            req = urllib.request.Request(
-                base_url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers=headers,
-                method='POST'
-            )
+            req = urllib.request.Request(base_url, data=json.dumps(payload).encode(), headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
-                res_data = json.loads(resp.read().decode('utf-8'))
-                choices = res_data.get('choices', [])
-                if choices and len(choices) > 0:
-                    return choices[0].get('message', {}).get('content', '').strip()
-        except Exception as e:
-            print(f"LLM API call warning (falling back to direct calculation): {e}")
-
-        return None
+                data = json.loads(resp.read().decode())
+                return data.get('choices', [{}])[0].get('message', {}).get('content', '').strip() or None
+        except Exception:
+            return None

@@ -6,7 +6,9 @@ Provides web interface for viewing project analytics and data
 from flask import Flask, render_template, jsonify, request, send_file
 from flask_cors import CORS
 import pandas as pd
+import numpy as np
 import json
+import math
 import pickle
 from pathlib import Path
 import sys
@@ -85,17 +87,65 @@ def load_or_generate_data():
         quality_report = auditor.audit(df)
         quality_summary = auditor.generate_audit_summary(quality_report)
         
-        # ML predictions are already in df_reference (Risk_Level, Delay_Months, etc.)
-        # Create predictions DataFrame from df_reference
+        # ── Run REAL ML model inference ──────────────────────────────────────
         predictions_df = df.copy()
-        
-        # Map df_reference columns to expected prediction columns
-        predictions_df["ML_Predicted_Delay_Days"] = predictions_df.get("Actual_Delay_Months", 0) * 30
-        predictions_df["ML_Predicted_Cost_Overrun_%"] = predictions_df.get("Cost_Overrun_Ratio", 0) * 100
-        predictions_df["ML_Risk_Level"] = predictions_df.get("Risk_Level", "LOW")
-        predictions_df["ML_Risk_Confidence_%"] = 75.0  # Default confidence
-        
-        # Keep old column names for dashboard compatibility
+        pkl_path = Path(__file__).parent.parent.parent / 'data' / 'project_intelligence_models.pkl'
+
+        try:
+            with open(pkl_path, 'rb') as f:
+                models = pickle.load(f)
+
+            ml_feature_cols = models['feature_cols']
+            ml_label_encoders = models['label_encoders']
+            ml_scaler = models['scaler']
+            ml_delay_model = models['delay_model']
+            ml_cost_model = models['cost_model']
+            ml_risk_model = models['risk_model']
+
+            # Prepare features with SAME preprocessing as training
+            X = predictions_df[ml_feature_cols].copy()
+            for col, le in ml_label_encoders.items():
+                if col in X.columns:
+                    X[col] = X[col].astype(str).map(
+                        lambda s, _le=le: _le.transform([s])[0] if s in _le.classes_ else 0
+                    )
+            # Replace any NaN with 0 before scaling
+            X = X.fillna(0)
+            X_scaled = ml_scaler.transform(X)
+
+            # Run trained models
+            pred_delay_months = ml_delay_model.predict(X_scaled)
+            pred_cost_ratio = ml_cost_model.predict(X_scaled)
+            pred_risk = ml_risk_model.predict(X_scaled)
+
+            # Clamp: negative predicted future delay → 0
+            pred_delay_days = np.maximum(pred_delay_months * 30, 0).round().astype(int)
+
+            predictions_df["ML_Predicted_Delay_Days"] = pred_delay_days
+            predictions_df["ML_Predicted_Cost_Overrun_%"] = (pred_cost_ratio * 100).round(2)
+            predictions_df["ML_Risk_Level"] = pred_risk
+
+            # Confidence from risk model probability (if available)
+            if hasattr(ml_risk_model, 'predict_proba'):
+                probas = ml_risk_model.predict_proba(X_scaled)
+                predictions_df["ML_Risk_Confidence_%"] = (probas.max(axis=1) * 100).round(1)
+            else:
+                predictions_df["ML_Risk_Confidence_%"] = 75.0
+
+            unique_preds = len(set(pred_delay_days))
+            print(f"[ML] Real model inference complete: {unique_preds} unique delay predictions across {len(df)} projects")
+            print(f"[ML] Predicted delay range: {pred_delay_days.min()}–{pred_delay_days.max()} days (mean {pred_delay_days.mean():.0f})")
+
+        except Exception as e:
+            import traceback
+            print(f"[ML] WARNING: Model inference failed, using dataset values as fallback: {e}")
+            print(traceback.format_exc())
+            predictions_df["ML_Predicted_Delay_Days"] = np.maximum(predictions_df.get("Actual_Delay_Months", 0) * 30, 0)
+            predictions_df["ML_Predicted_Cost_Overrun_%"] = predictions_df.get("Cost_Overrun_Ratio", 0) * 100
+            predictions_df["ML_Risk_Level"] = predictions_df.get("Risk_Level", "LOW")
+            predictions_df["ML_Risk_Confidence_%"] = 0.0  # 0% confidence = fallback
+
+        # Dashboard compatibility columns
         predictions_df["predicted_delay_days"] = predictions_df["ML_Predicted_Delay_Days"]
         predictions_df["predicted_completion_date"] = pd.NaT
 
@@ -823,43 +873,45 @@ def index():
             });
             
             // ── helpers ──────────────────────────────────────────────────────────
-            function fetchWithTimeout(url, timeoutMs) {
+            function fetchWithTimeout(url, timeoutMs = 30000) {
+                console.log(`[Dashboard] fetching ${url}`);
                 const ctrl = new AbortController();
                 const id = setTimeout(() => ctrl.abort(), timeoutMs);
                 return fetch(url, { signal: ctrl.signal })
+                    .then(res => {
+                        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                        return res.json();
+                    })
                     .finally(() => clearTimeout(id));
             }
 
             // Fetch and display Quick Statistics + Delayed Projects + Cost Overruns
             fetchWithTimeout('/api/analytics', 30000)
-                .then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
-                .then(data => {
-                    console.log('Analytics data received:', data);
+                .then(res => {
+                    console.log('[Dashboard] analytics response:', res);
+                    const data = (res && res.data) ? res.data : res;
                     if (!data || !data.summary_statistics) throw new Error('Invalid analytics data structure');
 
                     const stats = data.summary_statistics;
                     document.getElementById('stats').innerHTML = `
                         <div class="stat-card">
-                            <div class="stat-value">${stats.total_projects}</div>
+                            <div class="stat-value">${stats.total_projects || 0}</div>
                             <div class="stat-label">Total Projects</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value">${stats.delayed_projects}</div>
+                            <div class="stat-value">${stats.delayed_projects || 0}</div>
                             <div class="stat-label">Delayed</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value">${stats.on_time_projects}</div>
+                            <div class="stat-value">${stats.on_time_projects || 0}</div>
                             <div class="stat-label">On Time</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value">${stats.average_delay_days.toFixed(0)}</div>
+                            <div class="stat-value">${(stats.average_delay_days || 0).toFixed(0)}</div>
                             <div class="stat-label">Avg Delay (days)</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-value">${stats.average_progress_percent.toFixed(1)}%</div>
+                            <div class="stat-value">${(stats.average_progress_percent || 0).toFixed(1)}%</div>
                             <div class="stat-label">Avg Progress</div>
                         </div>
                     `;
@@ -871,32 +923,21 @@ def index():
                     
                     if (data.top_delayed_projects && data.top_delayed_projects.length > 0) {
                         renderDelayedProjects(data.top_delayed_projects);
+                    } else {
+                        document.getElementById('delayed').innerHTML = '<p style="color:#6c757d;padding:20px;">No delayed projects found.</p>';
                     }
                     
-                    // Cost overruns — costs already in Crore from CSV; display directly
+                    // Cost overruns
                     if (data.top_cost_overruns && data.top_cost_overruns.length > 0) {
-                        let table = '<table><tr><th>Project ID</th><th>Name</th><th>Overrun %</th><th>Sanctioned (₹ Cr)</th><th>Spent (₹ Cr)</th></tr>';
-                        data.top_cost_overruns.slice(0, 10).forEach(p => {
-                            const sanctioned = (p.sanctioned_cost / 10000000).toFixed(2);
-                            const spent = (p.expenditure_to_date / 10000000).toFixed(2);
-                            table += `<tr>
-                                <td><strong>${p.project_id}</strong></td>
-                                <td>${p.project_name}</td>
-                                <td style="color: #dc3545; font-weight: 600;">${p.cost_overrun_percent.toFixed(1)}%</td>
-                                <td>₹${sanctioned} Cr</td>
-                                <td>₹${spent} Cr</td>
-                            </tr>`;
-                        });
-                        table += '</table>';
-                        document.getElementById('overruns').innerHTML = table;
+                        renderCostOverruns(data.top_cost_overruns);
                     } else {
                         document.getElementById('overruns').innerHTML = '<p style="color:#6c757d;padding:20px;">No significant cost overruns detected.</p>';
                     }
                 })
                 .catch(err => {
                     const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
-                    console.error('Error loading analytics:', err);
-                    document.getElementById('stats').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load statistics: ${msg}. Please refresh the page.</p>`;
+                    console.error('[Dashboard] Error loading analytics:', err);
+                    document.getElementById('stats').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load statistics: ${msg}</p>`;
                     document.getElementById('delayed').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load delayed projects: ${msg}</p>`;
                     document.getElementById('overruns').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load cost overruns: ${msg}</p>`;
                 });
@@ -904,35 +945,19 @@ def index():
             
             // Fetch ML predictions
             fetchWithTimeout('/api/ml-predictions', 30000)
-                .then(r => {
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
-                .then(predictions => {
-                    console.log('ML predictions received:', predictions);
+                .then(res => {
+                    console.log('[Dashboard] ML predictions response:', res);
+                    const predictions = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
                     
                     if (predictions && predictions.length > 0) {
-                        let table = '<table><tr><th>Project ID</th><th>Name</th><th>District</th><th>Progress</th><th>Predicted Delay</th><th>Est. Completion</th></tr>';
-                        predictions.forEach(p => {
-                            const completion = p.predicted_completion_date ? p.predicted_completion_date.split('T')[0] : 'N/A';
-                            table += `<tr>
-                                <td><strong>${p.project_id}</strong></td>
-                                <td>${p.project_name}</td>
-                                <td>${p.district}</td>
-                                <td>${p.physical_progress_percent.toFixed(1)}%</td>
-                                <td style="color: #dc3545; font-weight: 600;">${p.predicted_delay_days} days</td>
-                                <td>${completion}</td>
-                            </tr>`;
-                        });
-                        table += '</table>';
-                        document.getElementById('ml-predictions').innerHTML = table;
+                        renderMLPredictions(predictions);
                     } else {
                         document.getElementById('ml-predictions').innerHTML = '<p style="color: #6c757d; padding: 20px;">No ML predictions available</p>';
                     }
                 })
                 .catch(err => {
                     const msg = err.name === 'AbortError' ? 'Request timed out (30 s)' : err.message;
-                    console.error('Error loading ML predictions:', err);
+                    console.error('[Dashboard] Error loading ML predictions:', err);
                     document.getElementById('ml-predictions').innerHTML = `<p style="color:#dc3545;padding:20px;">⚠ Failed to load ML predictions: ${msg}</p>`;
                 });
 
@@ -1074,22 +1099,88 @@ def index():
             }
             
             function renderDelayedProjects(projects) {
+                if (!projects || !Array.isArray(projects) || projects.length === 0) {
+                    document.getElementById('delayed').innerHTML = '<p style="color: #6c757d; padding: 20px;">No delayed projects found.</p>';
+                    return;
+                }
                 let table = '<table><tr><th>Project ID</th><th>Name</th><th>District</th><th>Delay (days)</th><th>Progress</th></tr>';
                 projects.forEach(p => {
-                    const statusClass = p.delay_days > 100 ? 'status-critical' : (p.delay_days > 0 ? 'status-delayed' : 'status-on-time');
-                    const statusText = p.delay_days > 100 ? 'Critical' : (p.delay_days > 0 ? 'Delayed' : 'On Time');
-                    table += `<tr class="clickable" onclick="showProjectDetails('${p.project_id}')">
-                        <td><strong>${p.project_id}</strong></td>
-                        <td>${p.project_name}</td>
-                        <td>${p.district}</td>
-                        <td><span class="status-badge ${statusClass}">${statusText}</span> ${p.delay_days}</td>
+                    const delayDays = typeof p.delay_days === 'number' ? p.delay_days : 0;
+                    const progress = typeof p.physical_progress_percent === 'number' ? p.physical_progress_percent : 0;
+                    const statusClass = delayDays > 100 ? 'status-critical' : (delayDays > 0 ? 'status-delayed' : 'status-on-time');
+                    const statusText = delayDays > 100 ? 'Critical' : (delayDays > 0 ? 'Delayed' : 'On Time');
+                    const pid = escapeHTML(String(p.project_id || 'N/A'));
+                    const pname = escapeHTML(String(p.project_name || 'Unknown'));
+                    const dist = escapeHTML(String(p.district || 'N/A'));
+
+                    table += `<tr class="clickable" onclick="showProjectDetails('${pid}')">
+                        <td><strong>${pid}</strong></td>
+                        <td>${pname}</td>
+                        <td>${dist}</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span> ${delayDays}</td>
                         <td><div style="background: #ecf0f1; border-radius: 10px; height: 8px; overflow: hidden;">
-                            <div style="background: linear-gradient(90deg, #00b4db, #0083b0); width: ${p.physical_progress_percent}%; height: 100%;"></div>
-                        </div>${p.physical_progress_percent.toFixed(1)}%</td>
+                            <div style="background: linear-gradient(90deg, #00b4db, #0083b0); width: ${Math.min(100, Math.max(0, progress))}%; height: 100%;"></div>
+                        </div>${progress.toFixed(1)}%</td>
                     </tr>`;
                 });
                 table += '</table>';
                 document.getElementById('delayed').innerHTML = table;
+            }
+
+            function renderCostOverruns(overruns) {
+                if (!overruns || !Array.isArray(overruns) || overruns.length === 0) {
+                    document.getElementById('overruns').innerHTML = '<p style="color: #6c757d; padding: 20px;">No significant cost overruns detected.</p>';
+                    return;
+                }
+                let table = '<table><tr><th>Project ID</th><th>Name</th><th>Overrun %</th><th>Sanctioned (₹ Cr)</th><th>Spent (₹ Cr)</th></tr>';
+                overruns.slice(0, 10).forEach(p => {
+                    const overrun = typeof p.cost_overrun_percent === 'number' ? p.cost_overrun_percent : 0;
+                    const sanctioned = typeof p.sanctioned_cost === 'number' ? (p.sanctioned_cost > 1e6 ? p.sanctioned_cost / 1e7 : p.sanctioned_cost) : 0;
+                    const spent = typeof p.expenditure_to_date === 'number' ? (p.expenditure_to_date > 1e6 ? p.expenditure_to_date / 1e7 : p.expenditure_to_date) : 0;
+                    const pid = escapeHTML(String(p.project_id || 'N/A'));
+                    const pname = escapeHTML(String(p.project_name || 'Unknown'));
+
+                    table += `<tr>
+                        <td><strong>${pid}</strong></td>
+                        <td>${pname}</td>
+                        <td style="color: #dc3545; font-weight: 600;">+${overrun.toFixed(1)}%</td>
+                        <td>₹${sanctioned.toFixed(2)} Cr</td>
+                        <td>₹${spent.toFixed(2)} Cr</td>
+                    </tr>`;
+                });
+                table += '</table>';
+                document.getElementById('overruns').innerHTML = table;
+            }
+
+            function renderMLPredictions(predictions) {
+                if (!predictions || !Array.isArray(predictions) || predictions.length === 0) {
+                    document.getElementById('ml-predictions').innerHTML = '<p style="color: #6c757d; padding: 20px;">No ML predictions available.</p>';
+                    return;
+                }
+                let table = '<table><tr><th>Project ID</th><th>Name</th><th>District</th><th>Progress</th><th>Predicted Delay</th><th>Risk Level</th></tr>';
+                predictions.forEach(p => {
+                    const progress = typeof p.physical_progress_percent === 'number' ? p.physical_progress_percent : 0;
+                    const delayDays = typeof p.predicted_delay_days === 'number' ? p.predicted_delay_days : Math.round((p.predicted_delay_months || 0) * 30);
+                    const risk = String(p.risk_level || p.ML_Risk_Level || 'LOW');
+                    const pid = escapeHTML(String(p.project_id || 'N/A'));
+                    const pname = escapeHTML(String(p.project_name || 'Unknown'));
+                    const dist = escapeHTML(String(p.district || 'N/A'));
+
+                    let riskColor = '#27ae60';
+                    if (risk === 'HIGH') riskColor = '#dc3545';
+                    else if (risk === 'MEDIUM-HIGH' || risk === 'MEDIUM') riskColor = '#f39c12';
+
+                    table += `<tr>
+                        <td><strong>${pid}</strong></td>
+                        <td>${pname}</td>
+                        <td>${dist}</td>
+                        <td>${progress.toFixed(1)}%</td>
+                        <td style="color: #dc3545; font-weight: 600;">${delayDays} days</td>
+                        <td><span class="status-badge" style="background:${riskColor};color:white;">${risk}</span></td>
+                    </tr>`;
+                });
+                table += '</table>';
+                document.getElementById('ml-predictions').innerHTML = table;
             }
             
             function applyFilters() {
@@ -1424,85 +1515,136 @@ def api_projects():
 @app.route('/api/analytics')
 def api_analytics():
     """Get analytics report"""
-    data = load_or_generate_data()
-    # Convert to JSON string and back to handle numpy/pandas types
-    import json
-    analytics_json = json.dumps(data['analytics'], default=str)
-    return analytics_json, 200, {'Content-Type': 'application/json'}
+    try:
+        print("[API] delayed projects & cost overruns: generating analytics report")
+        data = load_or_generate_data()
+        report = data['analytics']
+        
+        # Ensure values in report are sanitized and JSON serializable
+        delayed_list = report.get('top_delayed_projects', [])
+        overruns_list = report.get('top_cost_overruns', [])
+
+        print(f"[API] analytics: dataset processed successfully ({len(delayed_list)} delayed, {len(overruns_list)} cost overruns)")
+
+        payload = {
+            "success": True,
+            "data": {
+                "summary_statistics": report.get("summary_statistics", {}),
+                "top_delayed_projects": delayed_list,
+                "top_cost_overruns": overruns_list,
+                "category_analysis": report.get("category_analysis", {}),
+                "generated_at": report.get("generated_at", "")
+            },
+            # Also keep top-level fields for direct backwards compatibility
+            "summary_statistics": report.get("summary_statistics", {}),
+            "top_delayed_projects": delayed_list,
+            "top_cost_overruns": overruns_list,
+            "category_analysis": report.get("category_analysis", {}),
+            "generated_at": report.get("generated_at", "")
+        }
+        return json.dumps(payload, default=str), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        import traceback
+        print(f"[API] analytics ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": f"Failed to generate analytics: {e}"}), 500
 
 
 @app.route('/api/quality')
 def api_quality():
     """Get quality report"""
-    data = load_or_generate_data()
-    return jsonify(data['quality_report'])
+    try:
+        print("[API] quality check: fetching report")
+        data = load_or_generate_data()
+        report = data['quality_report']
+        return jsonify({"success": True, "data": report, **report})
+    except Exception as e:
+        print(f"[API] quality ERROR: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/delayed')
 def api_delayed():
-    """Get delayed projects only — returns the columns the frontend table expects"""
-    data = load_or_generate_data()
-    df = data['projects'].copy()
-    # Filter to actually delayed rows
-    delayed = df[df['Actual_Delay_Months'] > 0].copy()
-    # Shape to what the frontend renders
-    result = []
-    for _, row in delayed.iterrows():
-        result.append({
-            'project_id': str(row.get('Project Code', 'N/A')),
-            'project_name': str(row.get('Project Name', 'Unknown')),
-            'district': str(row.get('State', 'N/A')),
-            'delay_days': float(row.get('delay_days', row.get('Actual_Delay_Months', 0) * 30)),
-            'physical_progress_percent': float(row.get('Physical Progress (%)', 0)),
-            'category': str(row.get('Sector', 'N/A')),
-            'risk_level': str(row.get('Risk_Level', 'N/A')),
-        })
-    import json as _json
-    return _json.dumps(result, default=str), 200, {'Content-Type': 'application/json'}
+    """Get delayed projects list"""
+    try:
+        print("[API] delayed projects: fetching list")
+        data = load_or_generate_data()
+        df = data['projects'].copy()
+        delayed = df[df['Actual_Delay_Months'] > 0].copy()
+        
+        result = []
+        for _, row in delayed.iterrows():
+            delay_days = row.get('delay_days', row.get('Actual_Delay_Months', 0) * 30)
+            if pd.isna(delay_days) or math.isnan(float(delay_days)):
+                delay_days = 0
+            progress = row.get('Physical Progress (%)', 0)
+            if pd.isna(progress) or math.isnan(float(progress)):
+                progress = 0.0
+
+            result.append({
+                'project_id': str(row.get('Project Code', 'N/A')),
+                'project_name': str(row.get('Project Name', 'Unknown')),
+                'district': str(row.get('State', 'N/A')),
+                'delay_days': float(delay_days),
+                'physical_progress_percent': float(progress),
+                'category': str(row.get('Sector', 'N/A')),
+                'risk_level': str(row.get('Risk_Level', 'N/A')),
+            })
+        print(f"[API] delayed projects: returning {len(result)} records")
+        payload = {"success": True, "data": result, "count": len(result)}
+        return json.dumps(payload, default=str), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        import traceback
+        print(f"[API] delayed projects ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/ml-predictions')
 def api_ml_predictions():
-    """Get predictions from the trained PAIMANA ML models."""
+    """Get predictions from trained PAIMANA ML models"""
+    try:
+        print("[API] AI delay predictions: starting ML inference pipeline")
+        data = load_or_generate_data()
+        predictions_df = data['predictions'].copy()
 
-    data = load_or_generate_data()
+        predictions_df = predictions_df.sort_values(
+            'predicted_delay_days',
+            ascending=False
+        ).head(10)
 
-    # Get predictions from df_reference (already contains ML predictions)
-    predictions_df = data['predictions'].copy()
+        result = []
+        for _, row in predictions_df.iterrows():
+            delay_days = row.get('predicted_delay_days', row.get('ML_Predicted_Delay_Days', 0))
+            if pd.isna(delay_days) or math.isnan(float(delay_days)):
+                delay_days = 0
 
-    # Sort by predicted delay
-    predictions_df = predictions_df.sort_values(
-        'predicted_delay_days',
-        ascending=False
-    ).head(10)
+            cost_overrun = row.get('ML_Predicted_Cost_Overrun_%', row.get('Cost_Overrun_Ratio', 0) * 100)
+            if pd.isna(cost_overrun) or math.isnan(float(cost_overrun)):
+                cost_overrun = 0.0
 
-    # Return data required by the website
-    result = []
+            progress = row.get('Physical Progress (%)', 0)
+            if pd.isna(progress) or math.isnan(float(progress)):
+                progress = 0.0
 
-    for _, row in predictions_df.iterrows():
-        result.append({
-            'project_id': row.get('Project Code', 'N/A'),
-            'project_name': row.get('Project Name', 'Unknown'),
-            'district': row.get('State', 'N/A'),
-            'physical_progress_percent': float(
-                row.get('Physical Progress (%)', 0)
-            ),
-            'predicted_delay_days': int(
-                row.get('predicted_delay_days', 0)
-            ),
-            'cost_overrun_percent': round(
-                float(row.get('ML_Predicted_Cost_Overrun_%', 0)),
-                2
-            ),
-            'risk_level': str(
-                row.get('ML_Risk_Level', 'UNKNOWN')
-            ),
-            'risk_confidence': float(
-                row.get('ML_Risk_Confidence_%', 0)
-            )
-        })
+            risk = str(row.get('ML_Risk_Level', row.get('Risk_Level', 'LOW')))
 
-    return jsonify(result)
+            result.append({
+                'project_id': str(row.get('Project Code', 'N/A')),
+                'project_name': str(row.get('Project Name', 'Unknown')),
+                'district': str(row.get('State', 'N/A')),
+                'physical_progress_percent': float(progress),
+                'predicted_delay_days': int(float(delay_days)),
+                'cost_overrun_percent': round(float(cost_overrun), 2),
+                'risk_level': risk,
+                'risk_confidence': float(row.get('ML_Risk_Confidence_%', 75.0))
+            })
+
+        print(f"[API] AI delay predictions: returning {len(result)} ML prediction records")
+        payload = {"success": True, "data": result}
+        return json.dumps(payload, default=str), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        import traceback
+        print(f"[API] ml-predictions ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": f"ML model prediction error: {e}"}), 500
 
 
 @app.route('/api/category-chart')

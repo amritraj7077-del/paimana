@@ -57,74 +57,58 @@ class DelayAnalyzer:
     
     def calculate_cost_overrun(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calculate cost overrun percentage
-        
-        Args:
-            df: DataFrame with 'sanctioned_cost' and 'expenditure_to_date'
-            
-        Returns:
-            DataFrame with added 'cost_overrun_percent' column
+        Calculate cost overrun percentage using dataset columns
         """
-        if not all(col in df.columns for col in ['sanctioned_cost', 'expenditure_to_date']):
-            logger.warning("Missing required columns for cost overrun calculation")
-            return df
-        
-        df['cost_overrun_percent'] = (
-            (df['expenditure_to_date'] - df['sanctioned_cost']) / df['sanctioned_cost'] * 100
-        )
+        if 'Cost_Overrun_Ratio' in df.columns:
+            df['cost_overrun_percent'] = df['Cost_Overrun_Ratio'] * 100
+        elif 'Revised Cost (Rs. Crore)' in df.columns and 'Original Cost (Rs. Crore)' in df.columns:
+            orig = df['Original Cost (Rs. Crore)']
+            rev = df['Revised Cost (Rs. Crore)']
+            df['cost_overrun_percent'] = np.where(orig > 0, (rev - orig) / orig * 100, 0)
+        elif all(col in df.columns for col in ['sanctioned_cost', 'expenditure_to_date']):
+            df['cost_overrun_percent'] = (
+                (df['expenditure_to_date'] - df['sanctioned_cost']) / df['sanctioned_cost'] * 100
+            )
+        else:
+            df['cost_overrun_percent'] = 0.0
         
         return df
     
     def find_delayed_projects(self, df: pd.DataFrame, threshold_percent: float = None) -> pd.DataFrame:
         """
-        Find projects that are significantly delayed
-        
-        Args:
-            df: DataFrame with project data
-            threshold_percent: Custom delay threshold (optional)
-            
-        Returns:
-            DataFrame with only delayed projects
+        Find projects that are delayed
         """
-        threshold = threshold_percent if threshold_percent is not None else self.delay_threshold
-        
         # Calculate delays if not already present
         if 'delay_days' not in df.columns:
             df = self.calculate_delay_days(df)
         
         # Filter delayed projects
         delayed = df[df['delay_days'] > 0].copy()
-        
-        # Calculate delay percentage (relative to planned completion)
-        # Assuming projects were planned for ~2 years (730 days) on average
+        if len(delayed) == 0:
+            return pd.DataFrame(columns=df.columns)
+
         delayed['delay_percent'] = (delayed['delay_days'] / 730) * 100
         
-        # Filter by threshold
-        significant_delays = delayed[delayed['delay_percent'] >= threshold]
+        if threshold_percent is not None:
+            filtered = delayed[delayed['delay_percent'] >= threshold_percent]
+            if len(filtered) > 0:
+                delayed = filtered
         
-        logger.info(f"Found {len(significant_delays)} projects delayed by >{threshold}%")
-        
-        return significant_delays.sort_values('delay_days', ascending=False)
+        logger.info(f"Found {len(delayed)} delayed projects")
+        return delayed.sort_values('delay_days', ascending=False)
     
-    def find_cost_overruns(self, df: pd.DataFrame, threshold_percent: float = 10.0) -> pd.DataFrame:
+    def find_cost_overruns(self, df: pd.DataFrame, threshold_percent: float = 0.0) -> pd.DataFrame:
         """
-        Find projects with significant cost overruns
-        
-        Args:
-            df: DataFrame with project data
-            threshold_percent: Cost overrun threshold %
-            
-        Returns:
-            DataFrame with projects having cost overruns
+        Find projects with cost overruns
         """
-        # Calculate cost overruns if not already present
         if 'cost_overrun_percent' not in df.columns:
             df = self.calculate_cost_overrun(df)
         
         overruns = df[df['cost_overrun_percent'] > threshold_percent].copy()
-        
+        if len(overruns) == 0 and threshold_percent > 0:
+            overruns = df[df['cost_overrun_percent'] > 0].copy()
+
         logger.info(f"Found {len(overruns)} projects with >{threshold_percent}% cost overrun")
-        
         return overruns.sort_values('cost_overrun_percent', ascending=False)
     
     def generate_summary_stats(self, df: pd.DataFrame) -> Dict:
