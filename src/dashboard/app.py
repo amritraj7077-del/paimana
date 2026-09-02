@@ -3,6 +3,14 @@ Simple Flask Dashboard for PAIMANA Intelligence Platform
 Provides web interface for viewing project analytics and data
 """
 
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from flask import Flask, render_template, jsonify, request, send_file
 from flask_cors import CORS
 import pandas as pd
@@ -13,6 +21,7 @@ import pickle
 from pathlib import Path
 import sys
 import os
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -162,6 +171,1545 @@ def load_or_generate_data():
 def health():
     """Health check endpoint for Railway"""
     return jsonify({'status': 'healthy', 'service': 'paimana-intelligence-platform'})
+
+
+@app.route('/ai-insights/report/<project_id>')
+def ai_insights_report_page(project_id):
+    """AI Insights report page - dedicated project intelligence report for specific project"""
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <title>PAIMANA AI Insights - Project Intelligence Report</title>
+        <script src="https://unpkg.com/lucide@latest"></script>
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: #F7F9F8;
+                color: #17201B;
+                line-height: 1.6;
+                min-height: 100vh;
+            }}
+            
+            .header {{
+                background: #0B5D3B;
+                color: white;
+                padding: 25px 40px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }}
+            
+            .header-content {{
+                max-width: 1400px;
+                margin: 0 auto;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 15px;
+            }}
+            
+            .header-branding {{
+                flex: 1;
+                min-width: 300px;
+            }}
+            
+            .header h1 {{
+                font-size: 24px;
+                font-weight: 700;
+                margin-bottom: 5px;
+                letter-spacing: 0.5px;
+            }}
+            
+            .header h2 {{
+                font-size: 16px;
+                font-weight: 400;
+                opacity: 0.9;
+                margin-bottom: 8px;
+            }}
+            
+            .header-meta {{
+                font-size: 13px;
+                opacity: 0.85;
+                display: flex;
+                gap: 20px;
+                flex-wrap: wrap;
+            }}
+            
+            .header-meta span {{
+                display: flex;
+                align-items: center;
+                gap: 5px;
+            }}
+            
+            .header-actions {{
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }}
+            
+            .container {{
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 30px 40px;
+            }}
+            
+            .back-button {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 20px;
+                background: rgba(255,255,255,0.15);
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 14px;
+                transition: background 0.2s ease;
+                border: 1px solid rgba(255,255,255,0.2);
+            }}
+            
+            .back-button:hover {{
+                background: rgba(255,255,255,0.25);
+            }}
+            
+            .pdf-button {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 28px;
+                background: #0B5D3B;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 14px;
+                transition: background 0.2s ease;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            
+            .pdf-button:hover {{
+                background: #06452C;
+            }}
+            
+            .pdf-button:disabled {{
+                opacity: 0.5;
+                cursor: not-allowed;
+            }}
+            
+            .report-container {{
+                display: none;
+            }}
+            
+            .report-container.active {{
+                display: block;
+            }}
+            
+            .section {{
+                background: #FFFFFF;
+                padding: 30px;
+                border-radius: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                margin-bottom: 25px;
+                border: 1px solid #E8EBE9;
+                border-left: 4px solid #0B5D3B;
+            }}
+            
+            .section-header {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 25px;
+                padding-bottom: 15px;
+                border-bottom: 2px solid #E8EBE9;
+            }}
+            
+            .section-header h3 {{
+                color: #0B5D3B;
+                font-size: 20px;
+                font-weight: 700;
+                margin: 0;
+            }}
+            
+            .section-icon {{
+                width: 36px;
+                height: 36px;
+                background: #F0F7F3;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #0B5D3B;
+            }}
+            
+            .info-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                gap: 20px;
+            }}
+            
+            .info-item {{
+                padding: 20px;
+                background: #FFFFFF;
+                border-radius: 10px;
+                border: 1px solid #E8EBE9;
+                transition: all 0.2s ease;
+            }}
+            
+            .info-item:hover {{
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                border-color: #0B5D3B;
+            }}
+            
+            .info-item label {{
+                display: block;
+                font-weight: 600;
+                color: #64706A;
+                margin-bottom: 8px;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            
+            .info-item .value {{
+                font-size: 20px;
+                color: #17201B;
+                font-weight: 700;
+                line-height: 1.4;
+            }}
+            
+            .status-badge {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 600;
+                color: white;
+            }}
+            
+            .status-critical {{ background: #C62828; }}
+            .status-delayed {{ background: #B7791F; color: #000; }}
+            .status-ontime {{ background: #16803C; }}
+            
+            .risk-high {{ background: #C62828; }}
+            .risk-medium {{ background: #B7791F; color: #000; }}
+            .risk-low {{ background: #16803C; }}
+            
+            .risk-list {{
+                list-style: none;
+                display: grid;
+                gap: 12px;
+            }}
+            
+            .risk-list li {{
+                padding: 16px 20px;
+                background: #FFF5F5;
+                border-left: 4px solid #C62828;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: #17201B;
+            }}
+            
+            .risk-list li::before {{
+                content: '⚠';
+                font-size: 18px;
+                color: #C62828;
+            }}
+            
+            .comparison-table {{
+                width: 100%%;
+                border-collapse: collapse;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            }}
+            
+            .comparison-table th,
+            .comparison-table td {{
+                padding: 16px;
+                text-align: left;
+                border-bottom: 1px solid #E8EBE9;
+            }}
+            
+            .comparison-table th {{
+                background: #F0F7F3;
+                font-weight: 600;
+                color: #0B5D3B;
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            
+            .comparison-table tr:hover {{
+                background: #F7F9F8;
+            }}
+            
+            .comparison-table td {{
+                color: #17201B;
+            }}
+            
+            .assessment-box {{
+                background: #F0F7F3;
+                padding: 30px;
+                border-radius: 12px;
+                border-left: 4px solid #0B5D3B;
+            }}
+            
+            .assessment-box h4 {{
+                color: #0B5D3B;
+                margin-bottom: 15px;
+                font-size: 18px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }}
+            
+            .assessment-box p {{
+                margin-bottom: 15px;
+                line-height: 1.7;
+                color: #17201B;
+            }}
+            
+            .assessment-box p:last-child {{
+                margin-bottom: 0;
+            }}
+            
+            .assessment-box strong {{
+                color: #0B5D3B;
+            }}
+            
+            .loading {{
+                text-align: center;
+                padding: 60px 40px;
+                color: #64706A;
+                font-size: 18px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 15px;
+            }}
+            
+            .loading::before {{
+                content: '';
+                width: 50px;
+                height: 50px;
+                border: 4px solid #E8EBE9;
+                border-top-color: #0B5D3B;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }}
+            
+            @keyframes spin {{
+                to {{ transform: rotate(360deg); }}
+            }}
+            
+            .error {{
+                background: #FFF5F5;
+                color: #C62828;
+                padding: 25px 30px;
+                border-radius: 12px;
+                border-left: 4px solid #C62828;
+                box-shadow: 0 2px 8px rgba(198, 40, 40, 0.1);
+                font-size: 16px;
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }}
+            
+            .error::before {{
+                content: '❌';
+                font-size: 24px;
+            }}
+            
+            .progress-bar-container {{
+                background: #E8EBE9;
+                border-radius: 10px;
+                height: 24px;
+                margin: 12px 0;
+                overflow: hidden;
+            }}
+            
+            .progress-bar {{
+                height: 100%%;
+                border-radius: 10px;
+                transition: width 0.6s ease;
+            }}
+            
+            .progress-physical {{ background: #0B5D3B; }}
+            .progress-budget {{ background: #16803C; }}
+            
+            .metric-card {{
+                background: #FFFFFF;
+                padding: 25px;
+                border-radius: 12px;
+                border: 1px solid #E8EBE9;
+                text-align: center;
+                transition: all 0.2s ease;
+            }}
+            
+            .metric-card:hover {{
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                border-color: #0B5D3B;
+            }}
+            
+            .metric-card .label {{
+                font-size: 12px;
+                font-weight: 600;
+                color: #64706A;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 10px;
+            }}
+            
+            .metric-card .value {{
+                font-size: 32px;
+                font-weight: 700;
+                color: #0B5D3B;
+                margin-bottom: 5px;
+            }}
+            
+            .metric-card .unit {{
+                font-size: 14px;
+                color: #64706A;
+                font-weight: 500;
+            }}
+            
+            .comparison-card {{
+                background: #FFFFFF;
+                padding: 20px;
+                border-radius: 10px;
+                border: 1px solid #E8EBE9;
+                margin-bottom: 15px;
+                border-left: 3px solid #2563A6;
+            }}
+            
+            .comparison-card .comparison-label {{
+                font-size: 13px;
+                font-weight: 600;
+                color: #64706A;
+                margin-bottom: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            
+            .comparison-card .comparison-value {{
+                font-size: 20px;
+                font-weight: 700;
+                color: #17201B;
+            }}
+            
+            .comparison-card .comparison-diff {{
+                font-size: 14px;
+                margin-top: 5px;
+                font-weight: 600;
+            }}
+            
+            .comparison-diff.positive {{ color: #16803C; }}
+            .comparison-diff.negative {{ color: #C62828; }}
+            
+            @media (max-width: 1024px) {{
+                .header {{
+                    padding: 20px 30px;
+                }}
+                
+                .header-content {{
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 15px;
+                }}
+                
+                .header-branding {{
+                    width: 100%%;
+                }}
+                
+                .header-meta {{
+                    flex-wrap: wrap;
+                    gap: 15px;
+                }}
+                
+                .header-actions {{
+                    width: 100%%;
+                    justify-content: space-between;
+                }}
+                
+                .container {{
+                    padding: 25px 30px;
+                }}
+            }}
+            
+            @media (max-width: 768px) {{
+                .header {{
+                    padding: 15px 20px;
+                }}
+                
+                .header h1 {{
+                    font-size: 20px;
+                }}
+                
+                .header h2 {{
+                    font-size: 14px;
+                }}
+                
+                .header-meta {{
+                    font-size: 12px;
+                    flex-direction: column;
+                    gap: 8px;
+                }}
+                
+                .container {{
+                    padding: 20px;
+                }}
+                
+                .section {{
+                    padding: 20px;
+                }}
+                
+                .section-header h3 {{
+                    font-size: 18px;
+                }}
+                
+                .info-grid {{
+                    grid-template-columns: 1fr;
+                    gap: 15px;
+                }}
+                
+                .info-item .value {{
+                    font-size: 18px;
+                }}
+                
+                .metric-card .value {{
+                    font-size: 28px;
+                }}
+                
+                .status-badge {{
+                    font-size: 12px;
+                    padding: 8px 14px;
+                }}
+                
+                .comparison-table {{
+                    font-size: 13px;
+                }}
+                
+                .comparison-table th,
+                .comparison-table td {{
+                    padding: 12px 8px;
+                }}
+                
+                .header-actions {{
+                    flex-direction: column;
+                    gap: 10px;
+                }}
+                
+                .back-button,
+                .pdf-button {{
+                    width: 100%%;
+                    justify-content: center;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="header-content">
+                <div class="header-branding">
+                    <h1>PAIMANA Intelligence Platform</h1>
+                    <h2>Project Intelligence Report</h2>
+                    <div class="header-meta">
+                        <span><i data-lucide="file-text" style="width:16px;height:16px;"></i> Project ID: <span id="reportProjectId">Loading...</span></span>
+                        <span><i data-lucide="calendar" style="width:16px;height:16px;"></i> Generated: <span id="reportDate">Loading...</span></span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <a href="/" class="back-button">
+                        <i data-lucide="arrow-left" style="width:16px;height:16px;"></i>
+                        Back to Dashboard
+                    </a>
+                    <button class="pdf-button" id="pdfButton" onclick="downloadPDF()" disabled>
+                        <i data-lucide="download" style="width:16px;height:16px;"></i>
+                        Download PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="container">
+            <div id="reportContainer" class="report-container">
+                <div id="reportContent"></div>
+            </div>
+        </div>
+        
+        <script>
+            lucide.createIcons();
+            
+            // Auto-generate report on page load
+            const projectId = "{project_id}";
+            console.log('Report page loaded with Project ID:', projectId);
+            
+            // Show loading state immediately
+            const reportContainer = document.getElementById('reportContainer');
+            const reportContent = document.getElementById('reportContent');
+            reportContainer.classList.add('active');
+            reportContent.innerHTML = '<div class="loading">Generating Project Intelligence Report…</div>';
+            
+            generateReport(projectId);
+            
+            async function generateReport(projectId) {{
+                const reportContainer = document.getElementById('reportContainer');
+                const reportContent = document.getElementById('reportContent');
+                
+                console.log('Generating report for Project ID:', projectId);
+                
+                try {{
+                    const response = await fetch(`/api/generate-insights/${{encodeURIComponent(projectId)}}`);
+                    console.log('API response status:', response.status);
+                    const data = await response.json();
+                    console.log('API response data:', data);
+                    
+                    if (!data.success) {{
+                        console.error('API returned error:', data.error);
+                        reportContent.innerHTML = `<div class="error">${{data.error || 'Project not found. Please enter a valid Project ID.'}}</div>`;
+                        document.getElementById('reportProjectId').textContent = 'Error';
+                        document.getElementById('reportDate').textContent = '-';
+                        return;
+                    }}
+                    
+                    const insights = data.data;
+                    console.log('Insights data received:', insights);
+                    
+                    // Update header
+                    document.getElementById('reportProjectId').textContent = insights.project_info.project_id;
+                    document.getElementById('reportDate').textContent = new Date().toLocaleDateString();
+                    
+                    // Enable PDF button
+                    document.getElementById('pdfButton').disabled = false;
+                    
+                    // Build report HTML
+                    let html = '';
+                    
+                    // A. Project Overview
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="info" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>A. Project Overview</h3>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Project ID</label>
+                                    <div class="value">${{insights.project_info.project_id}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Project Name</label>
+                                    <div class="value">${{insights.project_info.project_name}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>State</label>
+                                    <div class="value">${{insights.project_info.district}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Category/Sector</label>
+                                    <div class="value">${{insights.project_info.category}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Ministry</label>
+                                    <div class="value">${{insights.project_info.ministry}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Physical Progress</label>
+                                    <div class="value">${{insights.project_info.physical_progress_percent.toFixed(1)}}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Current Status</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{insights.project_info.current_status === 'Critical' ? 'status-critical' : insights.project_info.current_status === 'Delayed' ? 'status-delayed' : 'status-ontime'}}">${{insights.project_info.current_status}}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // B. ML Assessment
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="brain" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>B. ML Assessment</h3>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>ML Predicted Risk</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{insights.ml_predictions.predicted_risk === 'HIGH' ? 'risk-high' : insights.ml_predictions.predicted_risk === 'MEDIUM-HIGH' || insights.ml_predictions.predicted_risk === 'MEDIUM' ? 'risk-medium' : 'risk-low'}}">${{insights.ml_predictions.predicted_risk}}</span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>ML Predicted Delay</label>
+                                    <div class="value">${{insights.ml_predictions.predicted_delay_days}} days</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>ML Predicted Cost Overrun</label>
+                                    <div class="value">${{insights.ml_predictions.predicted_cost_overrun_percent}}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>ML Confidence</label>
+                                    <div class="value">${{insights.ml_predictions.risk_confidence_percent > 0 ? insights.ml_predictions.risk_confidence_percent + '%' : 'Data unavailable'}}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // C. Financial Assessment
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="dollar-sign" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>C. Financial Health</h3>
+                            </div>
+                            <div class="info-grid">
+                                <div class="metric-card">
+                                    <div class="label">Sanctioned Cost</div>
+                                    <div class="value">₹${{insights.financial_health.sanctioned_cost_cr}}</div>
+                                    <div class="unit">Crores</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="label">Expenditure to Date</div>
+                                    <div class="value">₹${{insights.financial_health.expenditure_to_date_cr}}</div>
+                                    <div class="unit">Crores</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="label">Budget Utilization</div>
+                                    <div class="value">${{insights.financial_health.budget_utilization_percent}}</div>
+                                    <div class="unit">%</div>
+                                </div>
+                                <div class="metric-card">
+                                    <div class="label">Cost Overrun</div>
+                                    <div class="value">${{insights.financial_health.cost_overrun_percent}}</div>
+                                    <div class="unit">%</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // D. Schedule & Delay Assessment
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="clock" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>D. Schedule & Delay Assessment</h3>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Current Delay</label>
+                                    <div class="value">${{insights.delay_analysis.current_delay_days}} days</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Delay Severity</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{insights.delay_analysis.delay_category === 'Critical' ? 'status-critical' : insights.delay_analysis.delay_category === 'Delayed' ? 'status-delayed' : 'status-ontime'}}">${{insights.delay_analysis.delay_category}}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // E. Key Risk Factors
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="alert-triangle" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>E. Key Risk Factors</h3>
+                            </div>
+                            <ul class="risk-list">
+                                ${{insights.risk_factors.map(factor => `<li>${{factor}}</li>`).join('')}}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // F. Progress vs Expenditure
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="bar-chart-2" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>F. Progress vs Expenditure</h3>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Physical Progress</label>
+                                    <div class="value">${{insights.project_info.physical_progress_percent.toFixed(1)}}%</div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar progress-physical" style="width: ${{insights.project_info.physical_progress_percent}}%"></div>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Budget Utilization</label>
+                                    <div class="value">${{insights.financial_health.budget_utilization_percent}}%</div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar progress-budget" style="width: ${{insights.financial_health.budget_utilization_percent}}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 20px; padding: 20px; background: #F0F7F3; border-radius: 10px; border-left: 3px solid #0B5D3B;">
+                                <strong style="color: #0B5D3B;">Analysis:</strong> ${{insights.progress_expenditure_analysis}}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // G. Category/District Comparison
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="scale" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>G. Category/District Comparison</h3>
+                            </div>
+                            <div style="display: grid; gap: 15px;">
+                                ${{insights.category_comparison.map(comp => `
+                                    <div class="comparison-card">
+                                        <div class="comparison-label">Comparison Metric</div>
+                                        <div class="comparison-value">${{comp}}</div>
+                                    </div>
+                                `).join('')}}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // H. Similar Projects
+                    if (insights.similar_projects && insights.similar_projects.length > 0) {{
+                        html += `
+                            <div class="section">
+                                <div class="section-header">
+                                    <div class="section-icon">
+                                        <i data-lucide="git-branch" style="width:18px;height:18px;"></i>
+                                    </div>
+                                    <h3>H. Similar Projects</h3>
+                                </div>
+                                <table class="comparison-table">
+                                    <tr>
+                                        <th>Project ID</th>
+                                        <th>Project Name</th>
+                                        <th>Category</th>
+                                        <th>Similarity</th>
+                                    </tr>
+                                    ${{insights.similar_projects.map(p => `
+                                        <tr>
+                                            <td><strong>${{p.project_id}}</strong></td>
+                                            <td>${{p.project_name}}</td>
+                                            <td>${{p.sector}}</td>
+                                            <td><span class="status-badge status-ontime">${{(p.similarity_score * 100).toFixed(1)}}%%</span></td>
+                                        </tr>
+                                    `).join('')}}
+                                </table>
+                            </div>
+                        `;
+                    }}
+                    
+                    // I. AI Project Assessment
+                    html += `
+                        <div class="section">
+                            <div class="section-header">
+                                <div class="section-icon">
+                                    <i data-lucide="target" style="width:18px;height:18px;"></i>
+                                </div>
+                                <h3>I. AI Project Assessment</h3>
+                            </div>
+                            <div class="assessment-box">
+                                <h4><i data-lucide="check-circle" style="width:20px;height:20px;"></i> Overall Assessment</h4>
+                                <p>${{insights.risk_assessment}}</p>
+                                <p style="margin-top: 20px;"><strong><i data-lucide="lightbulb" style="width:16px;height:16px;"></i> Recommended Action:</strong> ${{insights.recommendation}}</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    reportContent.innerHTML = html;
+                    lucide.createIcons();
+                    
+                }} catch (error) {{
+                    console.error('Error generating report:', error);
+                    reportContent.innerHTML = '<div class="error">Error communicating with server.</div>';
+                }}
+            }}
+            
+            function escapeHTML(str) {{
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }}
+            
+            async function downloadPDF() {{
+                try {{
+                    const response = await fetch(`/api/download-insights-pdf/${{encodeURIComponent(projectId)}}`);
+                    if (response.ok) {{
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `PAIMANA_Project_Report_${{projectId}}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }} else {{
+                        const error = await response.json();
+                        alert(error.error || 'Error generating PDF');
+                    }}
+                }} catch (error) {{
+                    console.error('Error downloading PDF:', error);
+                    alert('Error downloading PDF');
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return html_template.format(project_id=project_id)
+
+
+@app.route('/ai-insights')
+def ai_insights_page():
+    """AI Insights page - dedicated project intelligence report"""
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <title>PAIMANA AI Insights - Project Intelligence Report</title>
+        <script src="https://unpkg.com/lucide@latest"></script>
+        <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                background: #F4F0E4;
+                color: #183F32;
+                line-height: 1.6;
+            }}
+            
+            .header {{
+                background: linear-gradient(135deg, #174D3B 0%, #1B6B3A 100%);
+                color: white;
+                padding: 30px 40px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }}
+            
+            .header h1 {{
+                font-size: 28px;
+                font-weight: 700;
+                margin-bottom: 8px;
+            }}
+            
+            .header p {{
+                font-size: 14px;
+                opacity: 0.9;
+            }}
+            
+            .container {{
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 40px;
+            }}
+            
+            .search-section {{
+                background: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                margin-bottom: 30px;
+            }}
+            
+            .search-section h2 {{
+                margin-bottom: 20px;
+                color: #174D3B;
+            }}
+            
+            .search-box {{
+                display: flex;
+                gap: 15px;
+            }}
+            
+            .search-box input {{
+                flex: 1;
+                padding: 15px;
+                border: 2px solid #E8E4D8;
+                border-radius: 8px;
+                font-size: 16px;
+            }}
+            
+            .search-box button {{
+                padding: 15px 30px;
+                background: #174D3B;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 16px;
+            }}
+            
+            .search-box button:hover {{
+                background: #0F3A2C;
+            }}
+            
+            .back-button {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 24px;
+                background: #6c757d;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-weight: 500;
+            }}
+            
+            .back-button:hover {{
+                background: #5a6268;
+            }}
+            
+            .report-container {{
+                display: none;
+            }}
+            
+            .report-container.active {{
+                display: block;
+            }}
+            
+            .report-header {{
+                background: white;
+                padding: 25px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                margin-bottom: 25px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
+            
+            .report-header h2 {{
+                color: #174D3B;
+                margin-bottom: 5px;
+            }}
+            
+            .report-header .meta {{
+                color: #6c757d;
+                font-size: 14px;
+            }}
+            
+            .pdf-button {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 24px;
+                background: #1B6B3A;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 15px;
+            }}
+            
+            .pdf-button:hover {{
+                background: #174D3B;
+            }}
+            
+            .section {{
+                background: white;
+                padding: 25px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+                margin-bottom: 25px;
+            }}
+            
+            .section h3 {{
+                color: #174D3B;
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #E8E4D8;
+                font-size: 18px;
+            }}
+            
+            .info-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 15px;
+            }}
+            
+            .info-item {{
+                padding: 15px;
+                background: #F8F9FA;
+                border-radius: 8px;
+            }}
+            
+            .info-item label {{
+                display: block;
+                font-weight: 600;
+                color: #6c757d;
+                margin-bottom: 5px;
+                font-size: 12px;
+                text-transform: uppercase;
+            }}
+            
+            .info-item .value {{
+                font-size: 16px;
+                color: #183F32;
+            }}
+            
+            .status-badge {{
+                display: inline-block;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 600;
+                color: white;
+            }}
+            
+            .status-critical {{ background: #dc3545; }}
+            .status-delayed {{ background: #ffc107; color: #000; }}
+            .status-ontime {{ background: #28a745; }}
+            
+            .risk-high {{ background: #dc3545; }}
+            .risk-medium {{ background: #ffc107; color: #000; }}
+            .risk-low {{ background: #28a745; }}
+            
+            .risk-list {{
+                list-style: none;
+            }}
+            
+            .risk-list li {{
+                padding: 10px 15px;
+                background: #FFF3CD;
+                border-left: 4px solid #FFC107;
+                margin-bottom: 10px;
+                border-radius: 4px;
+            }}
+            
+            .comparison-table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            
+            .comparison-table th,
+            .comparison-table td {{
+                padding: 12px;
+                text-align: left;
+                border-bottom: 1px solid #E8E4D8;
+            }}
+            
+            .comparison-table th {{
+                background: #F8F9FA;
+                font-weight: 600;
+                color: #174D3B;
+            }}
+            
+            .assessment-box {{
+                background: #E8F5E9;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #28a745;
+            }}
+            
+            .assessment-box h4 {{
+                color: #28a745;
+                margin-bottom: 10px;
+            }}
+            
+            .loading {{
+                text-align: center;
+                padding: 40px;
+                color: #6c757d;
+            }}
+            
+            .error {{
+                background: #F8D7DA;
+                color: #721C24;
+                padding: 20px;
+                border-radius: 8px;
+                border-left: 4px solid #DC3545;
+            }}
+            
+            .progress-bar-container {{
+                background: #E8E4D8;
+                border-radius: 10px;
+                height: 30px;
+                margin: 10px 0;
+                overflow: hidden;
+            }}
+            
+            .progress-bar {{
+                height: 100%;
+                border-radius: 10px;
+                transition: width 0.3s ease;
+            }}
+            
+            .progress-physical {{ background: #174D3B; }}
+            .progress-budget {{ background: #1B6B3A; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>PAIMANA Intelligence Platform</h1>
+            <p>Project Intelligence Report</p>
+        </div>
+        
+        <div class="container">
+            <a href="/" class="back-button">
+                <i data-lucide="arrow-left"></i>
+                Back to Dashboard
+            </a>
+            
+            <div class="search-section">
+                <h2>Generate Project Intelligence Report</h2>
+                <div class="search-box">
+                    <input type="text" id="projectIdInput" placeholder="Enter Project Code (e.g., PRJ001)">
+                    <button onclick="generateReport()">Generate Report</button>
+                </div>
+            </div>
+            
+            <div id="reportContainer" class="report-container">
+                <div class="report-header">
+                    <div>
+                        <h2>Project Intelligence Report</h2>
+                        <div class="meta">
+                            Project ID: <span id="reportProjectId">-</span> | 
+                            Generated: <span id="reportDate">-</span>
+                        </div>
+                    </div>
+                    <button class="pdf-button" onclick="downloadPDF()">
+                        <i data-lucide="file-text"></i>
+                        Download PDF
+                    </button>
+                </div>
+                
+                <div id="reportContent"></div>
+            </div>
+        </div>
+        
+        <script>
+            lucide.createIcons();
+            
+            async function generateReport() {{
+                const projectId = document.getElementById('projectIdInput').value.trim();
+                const reportContainer = document.getElementById('reportContainer');
+                const reportContent = document.getElementById('reportContent');
+                
+                if (!projectId) {{
+                    reportContent.innerHTML = '<div class="error">Please enter a Project Code.</div>';
+                    reportContainer.classList.add('active');
+                    return;
+                }}
+                
+                reportContent.innerHTML = '<div class="loading">Generating report...</div>';
+                reportContainer.classList.add('active');
+                
+                try {{
+                    const response = await fetch(`/api/generate-insights/${{encodeURIComponent(projectId)}}`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {{
+                        reportContent.innerHTML = `<div class="error">${{data.error || 'Error generating report.'}}</div>`;
+                        return;
+                    }}
+                    
+                    const insights = data.data;
+                    
+                    // Update header
+                    document.getElementById('reportProjectId').textContent = insights.project_info.project_id;
+                    document.getElementById('reportDate').textContent = new Date().toLocaleDateString();
+                    
+                    // Build report HTML
+                    let html = '';
+                    
+                    // A. Project Overview
+                    html += `
+                        <div class="section">
+                            <h3>A. Project Overview</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Project ID</label>
+                                    <div class="value">${{insights.project_info.project_id}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Project Name</label>
+                                    <div class="value">${{insights.project_info.project_name}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>State</label>
+                                    <div class="value">${{insights.project_info.district}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Category/Sector</label>
+                                    <div class="value">${{insights.project_info.category}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Ministry</label>
+                                    <div class="value">${{insights.project_info.ministry}}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Physical Progress</label>
+                                    <div class="value">${{insights.project_info.physical_progress_percent.toFixed(1)}}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Current Status</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{
+                                            insights.project_info.current_status === 'Critical' ? 'status-critical' : 
+                                            insights.project_info.current_status === 'Delayed' ? 'status-delayed' : 'status-ontime'
+                                        }}">{{{insights.project_info.current_status}}}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // B. ML Assessment
+                    html += `
+                        <div class="section">
+                            <h3>B. ML Assessment</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Predicted Risk</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{
+                                            insights.ml_predictions.predicted_risk === 'HIGH' ? 'risk-high' : 
+                                            insights.ml_predictions.predicted_risk === 'MEDIUM-HIGH' || insights.ml_predictions.predicted_risk === 'MEDIUM' ? 'risk-medium' : 'risk-low'
+                                        }}">{{{insights.ml_predictions.predicted_risk}}}</span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Predicted Delay</label>
+                                    <div class="value">${{insights.ml_predictions.predicted_delay_days}} days</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Predicted Cost Overrun</label>
+                                    <div class="value">${{insights.ml_predictions.predicted_cost_overrun_percent}}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Confidence</label>
+                                    <div class="value">${{insights.ml_predictions.risk_confidence_percent > 0 ? insights.ml_predictions.risk_confidence_percent + '%' : 'Data unavailable'}}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // C. Financial Assessment
+                    html += `
+                        <div class="section">
+                            <h3>C. Financial Assessment</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Sanctioned Cost</label>
+                                    <div class="value">₹${{insights.financial_health.sanctioned_cost_cr}} Cr</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Expenditure to Date</label>
+                                    <div class="value">₹${{insights.financial_health.expenditure_to_date_cr}} Cr</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Budget Utilization</label>
+                                    <div class="value">${{insights.financial_health.budget_utilization_percent}}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Cost Overrun</label>
+                                    <div class="value">${{insights.financial_health.cost_overrun_percent}}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // D. Schedule & Delay Assessment
+                    html += `
+                        <div class="section">
+                            <h3>D. Schedule & Delay Assessment</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Current Delay</label>
+                                    <div class="value">${{insights.delay_analysis.current_delay_days}} days</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Delay Severity</label>
+                                    <div class="value">
+                                        <span class="status-badge ${{
+                                            insights.delay_analysis.delay_category === 'Critical' ? 'status-critical' : 
+                                            insights.delay_analysis.delay_category === 'Delayed' ? 'status-delayed' : 'status-ontime'
+                                        }}">{{{insights.delay_analysis.delay_category}}}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // E. Key Risk Factors
+                    html += `
+                        <div class="section">
+                            <h3>E. Key Risk Factors</h3>
+                            <ul class="risk-list">
+                                ${{insights.risk_factors.map(factor => `<li>${{factor}}</li>`).join('')}}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // F. Progress vs Expenditure
+                    html += `
+                        <div class="section">
+                            <h3>F. Progress vs Expenditure</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Physical Progress</label>
+                                    <div class="value">${{insights.project_info.physical_progress_percent.toFixed(1)}}%</div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar progress-physical" style="width: ${{insights.project_info.physical_progress_percent}}%"></div>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Budget Utilization</label>
+                                    <div class="value">${{insights.financial_health.budget_utilization_percent}}%</div>
+                                    <div class="progress-bar-container">
+                                        <div class="progress-bar progress-budget" style="width: ${{insights.financial_health.budget_utilization_percent}}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 15px; padding: 15px; background: #F8F9FA; border-radius: 8px;">
+                                <strong>Analysis:</strong> ${{insights.progress_expenditure_analysis}}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // G. Category/District Comparison
+                    html += `
+                        <div class="section">
+                            <h3>G. Category/District Comparison</h3>
+                            <ul class="risk-list" style="background: #E2E3E5; border-left-color: #6c757d;">
+                                ${{insights.category_comparison.map(comp => `<li>${{comp}}</li>`).join('')}}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // H. Similar Projects
+                    if (insights.similar_projects && insights.similar_projects.length > 0) {{
+                        html += `
+                            <div class="section">
+                                <h3>H. Similar Projects</h3>
+                                <table class="comparison-table">
+                                    <tr>
+                                        <th>Project ID</th>
+                                        <th>Project Name</th>
+                                        <th>Category</th>
+                                        <th>Similarity</th>
+                                    </tr>
+                                    ${{insights.similar_projects.map(p => `
+                                        <tr>
+                                            <td><strong>${{p.project_id}}</strong></td>
+                                            <td>${{p.project_name}}</td>
+                                            <td>${{p.sector}}</td>
+                                            <td>${{(p.similarity_score * 100).toFixed(1)}}%</td>
+                                        </tr>
+                                    `).join('')}}
+                                </table>
+                            </div>
+                        `;
+                    }}
+                    
+                    // I. AI Project Assessment
+                    html += `
+                        <div class="section">
+                            <h3>I. AI Project Assessment</h3>
+                            <div class="assessment-box">
+                                <h4>Overall Assessment</h4>
+                                <p>${{insights.risk_assessment}}</p>
+                                <p style="margin-top: 15px;"><strong>Recommended Action:</strong> ${{insights.recommendation}}</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    reportContent.innerHTML = html;
+                    
+                }} catch (error) {{
+                    console.error('Error generating report:', error);
+                    reportContent.innerHTML = '<div class="error">Error communicating with server.</div>';
+                }}
+            }}
+            
+            function escapeHTML(str) {{
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            }}
+            
+            async function downloadPDF() {{
+                const projectId = document.getElementById('projectIdInput').value.trim();
+                if (!projectId) {{
+                    alert('Please enter a Project Code first.');
+                    return;
+                }}
+                
+                try {{
+                    const response = await fetch(`/api/download-insights-pdf/${{encodeURIComponent(projectId)}}`);
+                    if (response.ok) {{
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `PAIMANA_Project_Report_${{projectId}}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }} else {{
+                        const error = await response.json();
+                        alert(error.error || 'Error generating PDF');
+                    }}
+                }} catch (error) {{
+                    console.error('Error downloading PDF:', error);
+                    alert('Error downloading PDF');
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
 
 
 @app.route('/')
@@ -802,7 +2350,7 @@ def index():
     <i data-lucide="message-circle"></i>
     <span>AI Assistant</span>
 </div>
-                <div class="nav-item" onclick="navigateTo('insights')" id="nav-insights">
+                <div class="nav-item" onclick="window.location.href='/ai-insights'" id="nav-insights">
                     <i data-lucide="sparkles"></i>
                     <span>AI Insights</span>
                 </div>
@@ -1012,10 +2560,24 @@ take better actions</div>
 </div>
             <div class="card" id="section-insights">
                 <h2>AI-Generated Insights</h2>
-                <p style="color: #7f8c8d; margin-bottom: 20px;">AI-powered insights and recommendations based on project data analysis.</p>
-                <div id="ai-insights">
-                    <div class="loading">AI insights feature coming soon</div>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">Generate a detailed project intelligence report using project data and existing ML analysis.</p>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <input
+                        id="insightProjectId"
+                        type="text"
+                        placeholder="Enter Project Code (e.g., PRJ001)"
+                        style="flex: 1; padding: 12px; border: 1px solid #ced4da; border-radius: 8px; font-size: 14px;"
+                    >
+                    <button
+                        onclick="generateInsightsReport()"
+                        style="padding: 12px 24px; background: #1B6B3A; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
+                    >
+                        Generate Report
+                    </button>
                 </div>
+                
+                <div id="ai-insights-message"></div>
             </div>
             
             <div class="card" id="section-reports">
@@ -1443,6 +3005,190 @@ take better actions</div>
                 } catch (error) {
                     console.error('Error fetching similar projects:', error);
                     resultsContainer.innerHTML = '<p style="color: #e74c3c; padding: 20px;">Error communicating with server.</p>';
+                }
+            }
+            
+            async function generateInsights() {
+                const projectId = document.getElementById('insightProjectId').value.trim();
+                const resultsContainer = document.getElementById('ai-insights');
+                
+                if (!projectId) {
+                    resultsContainer.innerHTML = '<p style="color: #e74c3c; padding: 20px;">Please enter a Project Code.</p>';
+                    return;
+                }
+                
+                resultsContainer.innerHTML = '<div class="loading">Generating AI insights...</div>';
+                
+                try {
+                    const response = await fetch(`/api/generate-insights/${encodeURIComponent(projectId)}`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        resultsContainer.innerHTML = `<p style="color: #e74c3c; padding: 20px;">${data.error || 'Error generating insights.'}</p>`;
+                        return;
+                    }
+                    
+                    const insights = data.data;
+                    
+                    // Build insights HTML
+                    let html = '<div style="display: grid; gap: 20px;">';
+                    
+                    // Project Info Section
+                    html += `
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 4px solid #1B6B3A;">
+                            <h3 style="margin-top: 0; color: #1B6B3A;">📋 Project Information</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                                <div><strong>Project ID:</strong> ${escapeHTML(insights.project_info.project_id)}</div>
+                                <div><strong>Name:</strong> ${escapeHTML(insights.project_info.project_name)}</div>
+                                <div><strong>District:</strong> ${escapeHTML(insights.project_info.district)}</div>
+                                <div><strong>Category:</strong> ${escapeHTML(insights.project_info.category)}</div>
+                                <div><strong>Ministry:</strong> ${escapeHTML(insights.project_info.ministry)}</div>
+                                <div><strong>Status:</strong> <span class="status-badge" style="background: ${
+                                    insights.project_info.current_status === 'Critical' ? '#e74c3c' : 
+                                    insights.project_info.current_status === 'Delayed' ? '#f39c12' : '#27ae60'
+                                }; color: white;">${escapeHTML(insights.project_info.current_status)}</span></div>
+                                <div><strong>Progress:</strong> ${insights.project_info.physical_progress_percent.toFixed(1)}%</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // ML Predictions Section
+                    html += `
+                        <div style="background: #e8f5e9; padding: 20px; border-radius: 10px; border-left: 4px solid #27ae60;">
+                            <h3 style="margin-top: 0; color: #27ae60;">🤖 ML Model Predictions</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                                <div><strong>Predicted Risk:</strong> <span class="status-badge" style="background: ${
+                                    insights.ml_predictions.predicted_risk === 'HIGH' ? '#e74c3c' : 
+                                    insights.ml_predictions.predicted_risk === 'MEDIUM-HIGH' || insights.ml_predictions.predicted_risk === 'MEDIUM' ? '#f39c12' : '#27ae60'
+                                }; color: white;">${escapeHTML(insights.ml_predictions.predicted_risk)}</span></div>
+                                <div><strong>Predicted Delay:</strong> ${insights.ml_predictions.predicted_delay_days} days</div>
+                                <div><strong>Predicted Cost Overrun:</strong> ${insights.ml_predictions.predicted_cost_overrun_percent}%</div>
+                                <div><strong>Risk Confidence:</strong> ${insights.ml_predictions.risk_confidence_percent}%</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Financial Health Section
+                    html += `
+                        <div style="background: #fff3cd; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107;">
+                            <h3 style="margin-top: 0; color: #856404;">💰 Financial Health</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                                <div><strong>Sanctioned Cost:</strong> ₹${insights.financial_health.sanctioned_cost_cr} Cr</div>
+                                <div><strong>Expenditure to Date:</strong> ₹${insights.financial_health.expenditure_to_date_cr} Cr</div>
+                                <div><strong>Budget Utilization:</strong> ${insights.financial_health.budget_utilization_percent}%</div>
+                                <div><strong>Cost Overrun:</strong> ${insights.financial_health.cost_overrun_percent}%</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Delay Analysis Section
+                    html += `
+                        <div style="background: #f8d7da; padding: 20px; border-radius: 10px; border-left: 4px solid #dc3545;">
+                            <h3 style="margin-top: 0; color: #721c24;">⏱️ Delay Analysis</h3>
+                            <div><strong>Current Delay:</strong> ${insights.delay_analysis.current_delay_days} days (${escapeHTML(insights.delay_analysis.delay_category)})</div>
+                        </div>
+                    `;
+                    
+                    // Risk Factors Section
+                    html += `
+                        <div style="background: #d1ecf1; padding: 20px; border-radius: 10px; border-left: 4px solid #17a2b8;">
+                            <h3 style="margin-top: 0; color: #0c5460;">⚠️ Risk Factors</h3>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                ${insights.risk_factors.map(factor => `<li>${escapeHTML(factor)}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // Progress vs Expenditure Analysis
+                    html += `
+                        <div style="background: #d4edda; padding: 20px; border-radius: 10px; border-left: 4px solid #28a745;">
+                            <h3 style="margin-top: 0; color: #155724;">📊 Progress vs Expenditure Analysis</h3>
+                            <p>${escapeHTML(insights.progress_expenditure_analysis)}</p>
+                        </div>
+                    `;
+                    
+                    // Category Comparison
+                    html += `
+                        <div style="background: #e2e3e5; padding: 20px; border-radius: 10px; border-left: 4px solid #6c757d;">
+                            <h3 style="margin-top: 0; color: #383d41;">📈 Category Comparison</h3>
+                            <ul style="margin: 10px 0; padding-left: 20px;">
+                                ${insights.category_comparison.map(comp => `<li>${escapeHTML(comp)}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // Similar Projects Section
+                    if (insights.similar_projects && insights.similar_projects.length > 0) {
+                        html += `
+                            <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 4px solid #6f42c1;">
+                                <h3 style="margin-top: 0; color: #6f42c1;">🔍 Similar Projects</h3>
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <tr style="background: #e9ecef;">
+                                        <th style="padding: 8px; text-align: left;">Project ID</th>
+                                        <th style="padding: 8px; text-align: left;">Name</th>
+                                        <th style="padding: 8px; text-align: left;">Similarity</th>
+                                        <th style="padding: 8px; text-align: left;">Sector</th>
+                                    </tr>
+                                    ${insights.similar_projects.map(p => `
+                                        <tr style="border-bottom: 1px solid #dee2e6;">
+                                            <td style="padding: 8px;"><strong>${escapeHTML(p.project_id)}</strong></td>
+                                            <td style="padding: 8px;">${escapeHTML(p.project_name)}</td>
+                                            <td style="padding: 8px;"><span class="status-badge" style="background: #6f42c1; color: white;">${(p.similarity_score * 100).toFixed(1)}%</span></td>
+                                            <td style="padding: 8px;">${escapeHTML(p.sector)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </table>
+                            </div>
+                        `;
+                    }
+                    
+                    // Risk Assessment & Recommendation
+                    html += `
+                        <div style="background: #fff3cd; padding: 20px; border-radius: 10px; border-left: 4px solid #ffc107;">
+                            <h3 style="margin-top: 0; color: #856404;">🎯 Risk Assessment & Recommendation</h3>
+                            <p><strong>Assessment:</strong> ${escapeHTML(insights.risk_assessment)}</p>
+                            <p><strong>Recommendation:</strong> ${escapeHTML(insights.recommendation)}</p>
+                        </div>
+                    `;
+                    
+                    html += '</div>';
+                    resultsContainer.innerHTML = html;
+                    
+                } catch (error) {
+                    console.error('Error generating insights:', error);
+                    resultsContainer.innerHTML = '<p style="color: #e74c3c; padding: 20px;">Error communicating with server.</p>';
+                }
+            }
+            
+            async function generateInsightsReport() {
+                const projectId = document.getElementById('insightProjectId').value.trim();
+                const messageDiv = document.getElementById('ai-insights-message');
+                
+                if (!projectId) {
+                    messageDiv.innerHTML = '<p style="color: #e74c3c; padding: 10px;">Please enter a Project Code.</p>';
+                    return;
+                }
+                
+                messageDiv.innerHTML = '<p style="color: #6c757d; padding: 10px;">Validating Project ID...</p>';
+                
+                try {
+                    // Validate project ID by checking if it exists in the dataset
+                    const response = await fetch(`/api/generate-insights/${encodeURIComponent(projectId)}`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        messageDiv.innerHTML = `<p style="color: #e74c3c; padding: 10px;">${data.error || 'Project not found. Please check the Project ID.'}</p>`;
+                        return;
+                    }
+                    
+                    // Project is valid, navigate to report page
+                    messageDiv.innerHTML = '<p style="color: #28a745; padding: 10px;">Project ID validated. Generating report...</p>';
+                    setTimeout(() => {
+                        window.location.href = `/ai-insights/report/${encodeURIComponent(projectId)}`;
+                    }, 500);
+                } catch (error) {
+                    console.error('Error validating project ID:', error);
+                    messageDiv.innerHTML = '<p style="color: #e74c3c; padding: 10px;">Error validating Project ID. Please try again.</p>';
                 }
             }
             
@@ -2083,6 +3829,406 @@ def api_similar_projects(project_id):
         import traceback
         print(f"[API] similar-projects ERROR: {e}\n{traceback.format_exc()}")
         return jsonify({"success": False, "error": f"Similar projects error: {e}"}), 500
+
+
+@app.route('/api/generate-insights/<project_id>')
+def api_generate_insights(project_id):
+    """Generate detailed project intelligence report using existing data and ML predictions"""
+    try:
+        print(f"[API] generate-insights: Starting analysis for project {project_id}")
+        data = load_or_generate_data()
+        df = data['projects']
+        predictions_df = data['predictions']
+        analytics = data['analytics']
+        
+        # Check if project exists
+        if project_id not in df['Project Code'].astype(str).values:
+            return jsonify({"success": False, "error": f"Project Code '{project_id}' not found."}), 404
+        
+        # Get project data
+        project = df[df['Project Code'].astype(str) == project_id].iloc[0]
+        
+        # Get ML prediction for this project
+        project_prediction = predictions_df[predictions_df['Project Code'].astype(str) == project_id]
+        if len(project_prediction) > 0:
+            pred_row = project_prediction.iloc[0]
+            predicted_delay = pred_row.get('predicted_delay_days', pred_row.get('ML_Predicted_Delay_Days', 0))
+            predicted_cost_overrun = pred_row.get('ML_Predicted_Cost_Overrun_%', pred_row.get('Cost_Overrun_Ratio', 0) * 100)
+            predicted_risk = str(pred_row.get('ML_Risk_Level', pred_row.get('Risk_Level', 'LOW')))
+            risk_confidence = float(pred_row.get('ML_Risk_Confidence_%', 75.0))
+        else:
+            predicted_delay = 0
+            predicted_cost_overrun = 0
+            predicted_risk = 'LOW'
+            risk_confidence = 0
+        
+        # Extract project details
+        project_name = str(project.get('Project Name', 'Unknown'))
+        district = str(project.get('State', 'N/A'))
+        category = str(project.get('Sector', 'N/A'))
+        ministry = str(project.get('Ministry', 'Data unavailable'))
+        progress = float(project.get('Physical Progress (%)', 0) or 0)
+        sanctioned_cost = float(project.get('Original Cost (Rs. Crore)', 0) or 0)
+        expenditure = float(project.get('Cumulative Expenditure (Rs. Crore)', 0) or 0)
+        
+        # Use actual delay from dataset (in months), convert to days
+        actual_delay_months = float(project.get('Actual_Delay_Months', 0) or 0)
+        delay_days = actual_delay_months * 30 if actual_delay_months > 0 else 0
+        
+        # Calculate financial metrics from actual dataset values
+        budget_utilization = (expenditure / sanctioned_cost * 100) if sanctioned_cost > 0 else 0
+        cost_overrun_percent = ((expenditure - sanctioned_cost) / sanctioned_cost * 100) if sanctioned_cost > 0 else 0
+        
+        # Determine current status
+        if delay_days <= 0:
+            current_status = "On Time"
+        elif delay_days <= 100:
+            current_status = "Delayed"
+        else:
+            current_status = "Critical"
+        
+        # Calculate category averages
+        category_stats = analytics.get('category_analysis', {}).get(category, {})
+        category_avg_delay = category_stats.get('average_delay', 0)
+        category_avg_progress = category_stats.get('average_progress', 0)
+        
+        # Risk factors analysis
+        risk_factors = []
+        if delay_days > 100:
+            risk_factors.append("Significant delay (>100 days)")
+        if budget_utilization > 120:
+            risk_factors.append("High budget utilization (>120%)")
+        if progress < 30 and delay_days > 50:
+            risk_factors.append("Low progress with significant delay")
+        if cost_overrun_percent > 20:
+            risk_factors.append("High cost overrun (>20%)")
+        if predicted_risk in ['HIGH', 'MEDIUM-HIGH']:
+            risk_factors.append(f"ML model predicts {predicted_risk} risk")
+        
+        if not risk_factors:
+            risk_factors.append("No significant risk factors identified")
+        
+        # Progress vs expenditure analysis
+        progress_expenditure_gap = progress - budget_utilization
+        if abs(progress_expenditure_gap) > 20:
+            if progress_expenditure_gap > 0:
+                expenditure_analysis = f"Progress ({progress:.1f}%) exceeds budget utilization ({budget_utilization:.1f}%) by {progress_expenditure_gap:.1f}%. This may indicate efficient spending."
+            else:
+                expenditure_analysis = f"Budget utilization ({budget_utilization:.1f}%) exceeds progress ({progress:.1f}%) by {abs(progress_expenditure_gap):.1f}%. This may indicate cost overruns relative to work completed."
+        else:
+            expenditure_analysis = f"Progress ({progress:.1f}%) and budget utilization ({budget_utilization:.1f}%) are well aligned."
+        
+        # Comparison with category averages
+        comparison_insights = []
+        if category_avg_delay > 0:
+            delay_comparison = delay_days - category_avg_delay
+            if delay_comparison > 30:
+                comparison_insights.append(f"Project delay ({delay_days:.0f} days) is {delay_comparison:.0f} days higher than category average ({category_avg_delay:.0f} days)")
+            elif delay_comparison < -30:
+                comparison_insights.append(f"Project delay ({delay_days:.0f} days) is {abs(delay_comparison):.0f} days better than category average ({category_avg_delay:.0f} days)")
+            else:
+                comparison_insights.append(f"Project delay ({delay_days:.0f} days) is close to category average ({category_avg_delay:.0f} days)")
+        
+        if category_avg_progress > 0:
+            progress_comparison = progress - category_avg_progress
+            if progress_comparison > 15:
+                comparison_insights.append(f"Progress ({progress:.1f}%) is {progress_comparison:.1f}% higher than category average ({category_avg_progress:.1f}%)")
+            elif progress_comparison < -15:
+                comparison_insights.append(f"Progress ({progress:.1f}%) is {abs(progress_comparison):.1f}% lower than category average ({category_avg_progress:.1f}%)")
+            else:
+                comparison_insights.append(f"Progress ({progress:.1f}%) is close to category average ({category_avg_progress:.1f}%)")
+        
+        # Get similar projects
+        similar_projects = []
+        try:
+            similar_response = api_similar_projects(project_id)
+            if similar_response[1] == 200:
+                # Extract JSON from Response object
+                response_data = similar_response[0].get_json() if hasattr(similar_response[0], 'get_json') else json.loads(similar_response[0].get_data(as_text=True))
+                if response_data and response_data.get('success'):
+                    similar_projects = response_data.get('data', [])[:5]
+        except Exception as e:
+            print(f"[API] generate-insights: Error fetching similar projects: {e}")
+            similar_projects = []
+        
+        # Generate recommendation
+        if predicted_risk == 'HIGH' or delay_days > 100:
+            recommendation = "URGENT: Project requires immediate attention. Review resource allocation, identify bottlenecks, and consider intervention strategies."
+        elif predicted_risk == 'MEDIUM-HIGH' or delay_days > 50:
+            recommendation = "Project shows concerning indicators. Monitor closely and implement corrective measures to prevent further delays."
+        elif delay_days > 0:
+            recommendation = "Project is experiencing minor delays. Regular monitoring and proactive management recommended."
+        else:
+            recommendation = "Project is performing well. Continue current management practices and maintain regular monitoring."
+        
+        # Build insights report
+        insights = {
+            'project_info': {
+                'project_id': project_id,
+                'project_name': project_name,
+                'district': district,
+                'category': category,
+                'ministry': ministry,
+                'current_status': current_status,
+                'physical_progress_percent': progress
+            },
+            'ml_predictions': {
+                'predicted_risk': predicted_risk,
+                'predicted_delay_days': int(predicted_delay) if not pd.isna(predicted_delay) else 0,
+                'predicted_cost_overrun_percent': round(float(predicted_cost_overrun), 2) if not pd.isna(predicted_cost_overrun) else 0,
+                'risk_confidence_percent': round(risk_confidence, 1)
+            },
+            'financial_health': {
+                'sanctioned_cost_cr': round(sanctioned_cost, 2) if sanctioned_cost > 0 else 0,
+                'expenditure_to_date_cr': round(expenditure, 2) if expenditure > 0 else 0,
+                'budget_utilization_percent': round(budget_utilization, 1) if budget_utilization > 0 else 0,
+                'cost_overrun_percent': round(cost_overrun_percent, 1) if cost_overrun_percent != 0 else 0
+            },
+            'delay_analysis': {
+                'current_delay_days': int(delay_days) if delay_days > 0 else 0,
+                'delay_category': current_status
+            },
+            'risk_factors': risk_factors,
+            'progress_expenditure_analysis': expenditure_analysis,
+            'category_comparison': comparison_insights if comparison_insights else ['Data unavailable for comparison'],
+            'similar_projects': similar_projects,
+            'risk_assessment': f"Project is considered {predicted_risk} risk based on ML model predictions and current performance metrics.",
+            'recommendation': recommendation
+        }
+        
+        print(f"[API] generate-insights: Successfully generated insights for {project_id}")
+        return jsonify({"success": True, "data": insights}), 200, {'Content-Type': 'application/json'}
+        
+    except Exception as e:
+        import traceback
+        print(f"[API] generate-insights ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": f"Failed to generate insights: {e}"}), 500
+
+
+@app.route('/api/download-insights-pdf/<project_id>')
+def download_insights_pdf(project_id):
+    """Generate and download PDF report for project insights"""
+    try:
+        print(f"[API] download-insights-pdf: Generating PDF for project {project_id}")
+        
+        # Get insights data
+        insights_response = api_generate_insights(project_id)
+        if insights_response[1] != 200:
+            return jsonify({"success": False, "error": "Failed to generate insights data"}), 400
+        
+        insights_data = json.loads(insights_response[0].get_data(as_text=True))
+        if not insights_data.get('success'):
+            return jsonify({"success": False, "error": insights_data.get('error', 'Failed to generate insights')}), 400
+        
+        insights = insights_data['data']
+        
+        # Create PDF
+        from io import BytesIO
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+        
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#174D3B'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#174D3B'),
+            spaceAfter=12,
+            spaceBefore=20
+        )
+        
+        normal_style = styles['Normal']
+        normal_style.fontSize = 11
+        
+        # Header
+        story.append(Paragraph("PAIMANA Intelligence Platform", title_style))
+        story.append(Paragraph("Project Intelligence Report", ParagraphStyle('Subtitle', parent=styles['Heading2'], fontSize=18, alignment=TA_CENTER, spaceAfter=10)))
+        story.append(Spacer(1, 12))
+        
+        # Project ID and Date
+        meta_data = [
+            ['Project ID:', insights['project_info']['project_id']],
+            ['Generated:', datetime.now().strftime('%d %b %Y')],
+        ]
+        meta_table = Table(meta_data, colWidths=[2*inch, 3*inch], hAlign=TA_CENTER)
+        meta_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#6c757d')),
+        ]))
+        story.append(meta_table)
+        story.append(Spacer(1, 30))
+        
+        # A. Project Overview
+        story.append(Paragraph("A. Project Overview", heading_style))
+        overview_data = [
+            ['Project ID:', insights['project_info']['project_id']],
+            ['Project Name:', insights['project_info']['project_name']],
+            ['State:', insights['project_info']['district']],
+            ['Category/Sector:', insights['project_info']['category']],
+            ['Ministry:', insights['project_info']['ministry']],
+            ['Physical Progress:', f"{insights['project_info']['physical_progress_percent']:.1f}%"],
+            ['Current Status:', insights['project_info']['current_status']],
+        ]
+        overview_table = Table(overview_data, colWidths=[2*inch, 4*inch])
+        overview_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#6c757d')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#183F32')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+        ]))
+        story.append(overview_table)
+        story.append(Spacer(1, 20))
+        
+        # B. ML Assessment
+        story.append(Paragraph("B. ML Assessment", heading_style))
+        ml_data = [
+            ['Predicted Risk:', insights['ml_predictions']['predicted_risk']],
+            ['Predicted Delay:', f"{insights['ml_predictions']['predicted_delay_days']} days"],
+            ['Predicted Cost Overrun:', f"{insights['ml_predictions']['predicted_cost_overrun_percent']}%"],
+            ['Confidence:', f"{insights['ml_predictions']['risk_confidence_percent']}%" if insights['ml_predictions']['risk_confidence_percent'] > 0 else 'Data unavailable'],
+        ]
+        ml_table = Table(ml_data, colWidths=[2*inch, 4*inch])
+        ml_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#6c757d')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#183F32')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+        ]))
+        story.append(ml_table)
+        story.append(Spacer(1, 20))
+        
+        # C. Financial Assessment
+        story.append(Paragraph("C. Financial Assessment", heading_style))
+        financial_data = [
+            ['Sanctioned Cost:', f"₹{insights['financial_health']['sanctioned_cost_cr']} Cr"],
+            ['Expenditure to Date:', f"₹{insights['financial_health']['expenditure_to_date_cr']} Cr"],
+            ['Budget Utilization:', f"{insights['financial_health']['budget_utilization_percent']}%"],
+            ['Cost Overrun:', f"{insights['financial_health']['cost_overrun_percent']}%"],
+        ]
+        financial_table = Table(financial_data, colWidths=[2*inch, 4*inch])
+        financial_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#6c757d')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#183F32')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+        ]))
+        story.append(financial_table)
+        story.append(Spacer(1, 20))
+        
+        # D. Schedule & Delay Assessment
+        story.append(Paragraph("D. Schedule & Delay Assessment", heading_style))
+        delay_data = [
+            ['Current Delay:', f"{insights['delay_analysis']['current_delay_days']} days"],
+            ['Delay Severity:', insights['delay_analysis']['delay_category']],
+        ]
+        delay_table = Table(delay_data, colWidths=[2*inch, 4*inch])
+        delay_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#6c757d')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#183F32')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+        ]))
+        story.append(delay_table)
+        story.append(Spacer(1, 20))
+        
+        # E. Key Risk Factors
+        story.append(Paragraph("E. Key Risk Factors", heading_style))
+        for factor in insights['risk_factors']:
+            story.append(Paragraph(f"• {factor}", normal_style))
+        story.append(Spacer(1, 20))
+        
+        # F. Progress vs Expenditure
+        story.append(Paragraph("F. Progress vs Expenditure", heading_style))
+        progress_data = [
+            ['Physical Progress:', f"{insights['project_info']['physical_progress_percent']:.1f}%"],
+            ['Budget Utilization:', f"{insights['financial_health']['budget_utilization_percent']}%"],
+        ]
+        progress_table = Table(progress_data, colWidths=[2*inch, 4*inch])
+        progress_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#6c757d')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#183F32')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+        ]))
+        story.append(progress_table)
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(f"<b>Analysis:</b> {insights['progress_expenditure_analysis']}", normal_style))
+        story.append(Spacer(1, 20))
+        
+        # G. Category/District Comparison
+        story.append(Paragraph("G. Category/District Comparison", heading_style))
+        for comp in insights['category_comparison']:
+            story.append(Paragraph(f"• {comp}", normal_style))
+        story.append(Spacer(1, 20))
+        
+        # H. Similar Projects
+        if insights['similar_projects'] and len(insights['similar_projects']) > 0:
+            story.append(Paragraph("H. Similar Projects", heading_style))
+            similar_data = [['Project ID', 'Project Name', 'Category', 'Similarity']]
+            for p in insights['similar_projects']:
+                similar_data.append([
+                    p['project_id'],
+                    p['project_name'],
+                    p['sector'],
+                    f"{p['similarity_score']*100:.1f}%"
+                ])
+            similar_table = Table(similar_data, colWidths=[1.5*inch, 2.5*inch, 1.5*inch, 1*inch])
+            similar_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F8F9FA')),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E8E4D8')),
+            ]))
+            story.append(similar_table)
+            story.append(Spacer(1, 20))
+        
+        # I. AI Project Assessment
+        story.append(Paragraph("I. AI Project Assessment", heading_style))
+        story.append(Paragraph(f"<b>Overall Assessment:</b> {insights['risk_assessment']}", normal_style))
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(f"<b>Recommended Action:</b> {insights['recommendation']}", normal_style))
+        
+        # Build PDF
+        doc.build(story)
+        
+        # Return PDF
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=f'PAIMANA_Project_Report_{project_id}.pdf',
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"[API] download-insights-pdf ERROR: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False, "error": f"Failed to generate PDF: {e}"}), 500
 
 
 @app.route('/api/map-data')
